@@ -1,6 +1,6 @@
 <!-- ENLIZZO README -->
 
-<h1 align="center">🛒 Enlizzo – HERE_CHECK IITD Student-Only Marketplace (PWA)</h1>
+<h1 align="center">🛒 Enlizzo – IITD Student-Only Marketplace (PWA)</h1>
 
 <p align="center">
   A modern, private marketplace for IIT Delhi students to buy, sell, and donate used items with a strict 60% price cap.
