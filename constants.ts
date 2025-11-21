@@ -25,8 +25,8 @@ export const SEARCH_SUFFIXES = [
 
 export const MOCK_USER: User = {
   id: 'u1',
-  name: 'Aravind Kumar',
-  email: 'aravind.k@iitd.ac.in',
+  name: 'Yashvi Singh',
+  email: 'yashvi.s@iitd.ac.in',
   hostel: 'Karakoram',
   avatarUrl: 'https://picsum.photos/id/64/200/200',
 };
