@@ -109,7 +109,14 @@ export const fetchListings = async (isDemoMode: boolean) => {
       return listings.map(l => mapDbListingToProduct(l, profileMap));
   } catch (e) {
       console.error('Fetch listings failed:', e);
-      return localProducts; // Fallback
+      
+      // CRITICAL FIX: If we are NOT in demo mode (meaning we are a real user), 
+      // we MUST NOT return local mock products on error. Return empty array instead.
+      if (!isDemoMode && isSupabaseConfigured()) {
+          return [];
+      }
+
+      return localProducts; // Fallback only for demo mode
   }
 };
 
