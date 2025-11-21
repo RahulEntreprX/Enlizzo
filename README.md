@@ -1,5 +1,5 @@
 
-```
+
 <!-- ENLIZZO README -->
 
 <h1 align="center">🛒 Enlizzo – IITD Student-Only Marketplace (PWA)</h1>
@@ -149,7 +149,7 @@ The current schema (from your uploaded diagram):
 
 ## 📁 Project Structure (Updated to Your Actual Folder Tree)
 
-```
+
 
 ENLIZZO-V1_0/
 ├── components/
@@ -194,7 +194,7 @@ ENLIZZO-V1_0/
 ├── tsconfig.json
 └── vite.config.ts
 
-```
+
 
 
 <hr />
@@ -203,44 +203,44 @@ ENLIZZO-V1_0/
 
 ### 1️⃣ Clone the Repository
 
-```
+
 h
 git clone https://github.com/RahulEntreprX/Enlizzo.git
 cd Enlizzo
-```
+
 
 
 ### 2️⃣ Install Dependencies
 
-```
+
 h
 npm install
-```
+
 
 ### 3️⃣ Configure Environment Variables
 
 Create `.env.local`:
 
-```
+
 VITE_SUPABASE_URL=your-supabase-url
 VITE_SUPABASE_KEY=your-supabase-anon-key
-```
+
 
 ### 4️⃣ Run Dev Server
 
-```
+
 h
 npm run dev
-```
+
 
 <hr />
 
 ## 📦 Build for Production
 
-```
+
 h
 npm run build
-```
+
 
 <hr />
 
@@ -262,3 +262,4 @@ Contributions and ideas are welcome.
 
 **Rahul (Unleasher IN)**
 Builder • Student • Campus Tools Enthusiast
+If you’re from IIT Delhi and want to collaborate or extend Enlizzo, feel free to reach out or open a discussion on the repository.
