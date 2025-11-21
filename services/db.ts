@@ -71,17 +71,18 @@ const mapDbListingToProduct = (dbListing: any, profileMap: any): Product => ({
 // --- LISTINGS ---
 
 export const fetchListings = async (isDemoMode: boolean) => {
-  try {
-      // Strict separation: If Demo Mode OR Supabase not configured -> Use Local Mocks
-      if (isDemoMode || !isSupabaseConfigured()) {
-          // Return a copy to prevent reference mutation issues, simulates API response
-          return [...localProducts];
-      }
+  // 1. Explicit Demo Mode (Strict Separation)
+  if (isDemoMode) {
+      return [...localProducts];
+  }
 
-      // Fetch active listings
-      // NOTE: We include SOLD and ARCHIVED items here so they can be displayed 
-      // in the user's Profile "Archive" tab. 
-      // They are filtered out of the Marketplace view in the frontend.
+  // 2. Production Mode Check
+  if (!isSupabaseConfigured()) {
+      // In Production phase: If not configured, return empty, NEVER return mock.
+      return [];
+  }
+
+  try {
       const { data: listings, error } = await supabase
         .from('listings')
         .select('*')
@@ -109,14 +110,8 @@ export const fetchListings = async (isDemoMode: boolean) => {
       return listings.map(l => mapDbListingToProduct(l, profileMap));
   } catch (e) {
       console.error('Fetch listings failed:', e);
-      
-      // CRITICAL FIX: If we are NOT in demo mode (meaning we are a real user), 
-      // we MUST NOT return local mock products on error. Return empty array instead.
-      if (!isDemoMode && isSupabaseConfigured()) {
-          return [];
-      }
-
-      return localProducts; // Fallback only for demo mode
+      // On error in production, return empty, NEVER return localProducts.
+      return []; 
   }
 };
 
@@ -127,9 +122,9 @@ export const createListing = async (
   paymentId: string,
   isDemoMode: boolean
 ): Promise<Product> => {
-  const newId = `p${Date.now()}`;
   
-  if (isDemoMode || !isSupabaseConfigured()) {
+  if (isDemoMode) {
+      const newId = `p${Date.now()}`;
       const newProduct: Product = {
           id: newId,
           title: formData.title,
@@ -155,6 +150,10 @@ export const createListing = async (
       return newProduct;
   }
   
+  if (!isSupabaseConfigured()) {
+      throw new Error("Production Database not configured");
+  }
+
   const expiresAt = listingType === 'STANDARD' 
     ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() 
     : null;
@@ -180,7 +179,6 @@ export const createListing = async (
 
   if (error) throw error;
 
-  // Return full product object for optimistic update
   return {
       id: data.id,
       title: data.title,
@@ -205,8 +203,7 @@ export const createListing = async (
 };
 
 export const updateListingStatus = async (id: string, status: 'SOLD' | 'ARCHIVED' | 'FLAGGED', isDemoMode: boolean) => {
-  // Optimistic Update handled by caller usually, but we update source of truth here
-  if (isDemoMode || !isSupabaseConfigured()) {
+  if (isDemoMode) {
       localProducts = localProducts.map(p => 
           p.id === id ? { ...p, status, isSold: status === 'SOLD' } : p
       );
@@ -214,7 +211,8 @@ export const updateListingStatus = async (id: string, status: 'SOLD' | 'ARCHIVED
       return;
   }
   
-  // Fire and forget logic can be handled by caller waiting or not
+  if (!isSupabaseConfigured()) return;
+
   const { error } = await supabase
     .from('listings')
     .update({ status })
@@ -226,9 +224,11 @@ export const updateListingStatus = async (id: string, status: 'SOLD' | 'ARCHIVED
 // --- SAVED ITEMS (LIKES) ---
 
 export const fetchSavedItems = async (userId: string, isDemoMode: boolean): Promise<Set<string>> => {
-    if (isDemoMode || !isSupabaseConfigured()) {
+    if (isDemoMode) {
         return new Set(localSaved[userId] || []);
     }
+
+    if (!isSupabaseConfigured()) return new Set();
 
     const { data, error } = await supabase
         .from('saved_items')
@@ -244,7 +244,7 @@ export const fetchSavedItems = async (userId: string, isDemoMode: boolean): Prom
 };
 
 export const toggleSavedItem = async (userId: string, listingId: string, isCurrentlySaved: boolean, isDemoMode: boolean) => {
-    if (isDemoMode || !isSupabaseConfigured()) {
+    if (isDemoMode) {
         const current = localSaved[userId] || [];
         if (isCurrentlySaved) {
             localSaved[userId] = current.filter(id => id !== listingId);
@@ -255,6 +255,8 @@ export const toggleSavedItem = async (userId: string, listingId: string, isCurre
         return;
     }
 
+    if (!isSupabaseConfigured()) return;
+
     if (isCurrentlySaved) {
         // Remove
         const { error } = await supabase
@@ -263,7 +265,7 @@ export const toggleSavedItem = async (userId: string, listingId: string, isCurre
             .match({ user_id: userId, listing_id: listingId });
         if (error) throw error;
     } else {
-        // Add (Upsert to be safe against race conditions)
+        // Add
         const { error } = await supabase
             .from('saved_items')
             .upsert({ user_id: userId, listing_id: listingId }, { onConflict: 'user_id, listing_id' });
@@ -274,17 +276,17 @@ export const toggleSavedItem = async (userId: string, listingId: string, isCurre
 // --- RECENTLY VIEWED ---
 
 export const addToRecentlyViewed = async (userId: string, listingId: string, isDemoMode: boolean) => {
-    if (isDemoMode || !isSupabaseConfigured()) {
+    if (isDemoMode) {
         const userHistory = localRecent[userId] || [];
-        // Remove if exists to move to top
         const filtered = userHistory.filter(x => x.id !== listingId);
         filtered.unshift({ id: listingId, at: Date.now() });
-        localRecent[userId] = filtered.slice(0, 20); // Keep last 20
+        localRecent[userId] = filtered.slice(0, 20); 
         saveToStorage(STORAGE_KEY_RECENT, localRecent);
         return;
     }
 
-    // Upsert logic (requires constraint on user_id, listing_id in DB)
+    if (!isSupabaseConfigured()) return;
+
     const { error } = await supabase
         .from('recently_viewed')
         .upsert({ 
@@ -297,16 +299,13 @@ export const addToRecentlyViewed = async (userId: string, listingId: string, isD
 };
 
 export const fetchRecentlyViewedIds = async (userId: string, isDemoMode: boolean): Promise<string[]> => {
-    // 7 Days expiration logic
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const sevenDaysAgoIso = sevenDaysAgo.toISOString();
 
-    if (isDemoMode || !isSupabaseConfigured()) {
+    if (isDemoMode) {
         const list = localRecent[userId] || [];
-        // Filter locally (using timestamp comparison)
         const filtered = list.filter(item => item.at > sevenDaysAgo.getTime());
         
-        // Update local storage with cleaned list if items expired
         if (filtered.length !== list.length) {
             localRecent[userId] = filtered;
             saveToStorage(STORAGE_KEY_RECENT, localRecent);
@@ -314,11 +313,13 @@ export const fetchRecentlyViewedIds = async (userId: string, isDemoMode: boolean
         return filtered.map(x => x.id);
     }
 
+    if (!isSupabaseConfigured()) return [];
+
     const { data, error } = await supabase
         .from('recently_viewed')
         .select('listing_id')
         .eq('user_id', userId)
-        .gte('viewed_at', sevenDaysAgoIso) // DB Filter
+        .gte('viewed_at', sevenDaysAgoIso)
         .order('viewed_at', { ascending: false })
         .limit(20);
 
@@ -330,6 +331,7 @@ export const fetchRecentlyViewedIds = async (userId: string, isDemoMode: boolean
 
 export const uploadImage = async (file: File) => {
   if (!isSupabaseConfigured()) {
+      // Fallback for preview only if no backend, but implies no persistence
       return URL.createObjectURL(file); 
   }
 
@@ -350,7 +352,7 @@ export const uploadImage = async (file: File) => {
 // --- ADMIN & REPORTS ---
 
 export const reportListing = async (listingId: string, reporterId: string, reason: string, isDemoMode: boolean) => {
-  if (isDemoMode || !isSupabaseConfigured()) {
+  if (isDemoMode) {
       const newReport: any = {
         id: `r${Date.now()}`,
         listingId,
@@ -365,6 +367,8 @@ export const reportListing = async (listingId: string, reporterId: string, reaso
       return;
   }
 
+  if (!isSupabaseConfigured()) throw new Error("Not configured");
+
   const { error } = await supabase
     .from('reports')
     .insert({ listing_id: listingId, reporter_id: reporterId, reason });
@@ -373,7 +377,9 @@ export const reportListing = async (listingId: string, reporterId: string, reaso
 };
 
 export const fetchReports = async (isDemoMode: boolean) => {
-  if (isDemoMode || !isSupabaseConfigured()) return [...localReports];
+  if (isDemoMode) return [...localReports];
+  
+  if (!isSupabaseConfigured()) return [];
 
   const { data: reports, error } = await supabase
     .from('reports')
@@ -386,7 +392,6 @@ export const fetchReports = async (isDemoMode: boolean) => {
 
   if (error) throw error;
 
-  // Fetch seller details separate to ensure robustness
   const sellerIds = [...new Set(reports.map((r: any) => r.listing?.seller_id).filter(Boolean))];
   const { data: sellers } = await supabase
     .from('profiles')
@@ -420,35 +425,43 @@ export const fetchReports = async (isDemoMode: boolean) => {
 };
 
 export const dismissReport = async (reportId: string, isDemoMode: boolean) => {
-  if (isDemoMode || !isSupabaseConfigured()) {
+  if (isDemoMode) {
       localReports = localReports.filter(r => r.id !== reportId);
       saveToStorage(STORAGE_KEY_REPORTS, localReports);
       return;
   }
+  
+  if (!isSupabaseConfigured()) return;
+
   const { error } = await supabase.from('reports').delete().eq('id', reportId);
   if (error) throw error;
 };
 
 export const deleteListing = async (listingId: string, isDemoMode: boolean) => {
-    if (isDemoMode || !isSupabaseConfigured()) {
+    if (isDemoMode) {
         localProducts = localProducts.filter(p => p.id !== listingId);
         saveToStorage(STORAGE_KEY_PRODUCTS, localProducts);
         return;
     }
-    // Reports cascade delete usually, but safe to do manually
+    
+    if (!isSupabaseConfigured()) return;
+
     await supabase.from('reports').delete().eq('listing_id', listingId);
     const { error } = await supabase.from('listings').delete().eq('id', listingId);
     if (error) throw error;
 }
 
 export const banUser = async (userId: string, isDemoMode: boolean) => {
-    if (isDemoMode || !isSupabaseConfigured()) {
+    if (isDemoMode) {
         if (localUsers[userId]) {
             localUsers[userId].isBanned = true;
             saveToStorage(STORAGE_KEY_USERS, localUsers);
         }
         return;
     }
+    
+    if (!isSupabaseConfigured()) return;
+
     const { error } = await supabase
         .from('profiles')
         .update({ is_banned: true })
@@ -461,11 +474,13 @@ export const banUser = async (userId: string, isDemoMode: boolean) => {
 export const getCurrentUserProfile = async (authUser: any): Promise<User | null> => {
   const userId = authUser.id;
   
-  // Determine if this is a demo/fake user context by checking Supabase config or specific email
-  
   if (!isSupabaseConfigured()) {
+      // Even if not configured, we only return MOCK_USER if explicitly requested via AuthContext demo flow.
+      // However, AuthContext handles the mock flow logic. 
+      // If we are here with a userId that matches mock, we return mock.
       if (userId === MOCK_USER.id) return MOCK_USER;
-      return localUsers[userId] || null;
+      // Otherwise return null (no real users in no-config mode)
+      return null;
   }
 
   // Try to get existing profile
@@ -525,13 +540,15 @@ export const updateUserProfile = async (userId: string, updates: {
     theme?: 'dark' | 'light';
     avatarUrl?: string;
 }, isDemoMode: boolean): Promise<User> => {
-  if (isDemoMode || !isSupabaseConfigured()) {
+  if (isDemoMode) {
       const current = localUsers[userId] || MOCK_USER;
       const updated = { ...current, ...updates };
       localUsers[userId] = updated;
       saveToStorage(STORAGE_KEY_USERS, localUsers);
       return updated;
   }
+
+  if (!isSupabaseConfigured()) throw new Error("Not configured");
 
   const { data, error } = await supabase
     .from('profiles')
@@ -553,7 +570,10 @@ export const updateUserProfile = async (userId: string, updates: {
 };
 
 export const requestAccountDeletion = async (userId: string, isDemoMode: boolean) => {
-    if (isDemoMode || !isSupabaseConfigured()) return;
+    if (isDemoMode) return;
+    
+    if (!isSupabaseConfigured()) return;
+
     const { error } = await supabase
         .from('profiles')
         .update({ deletion_requested_at: new Date().toISOString() })
@@ -562,7 +582,10 @@ export const requestAccountDeletion = async (userId: string, isDemoMode: boolean
 };
 
 export const restoreAccount = async (userId: string, isDemoMode: boolean) => {
-    if (isDemoMode || !isSupabaseConfigured()) return;
+    if (isDemoMode) return;
+
+    if (!isSupabaseConfigured()) return;
+
     const { error } = await supabase
         .from('profiles')
         .update({ deletion_requested_at: null })

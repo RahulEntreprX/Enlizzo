@@ -26,7 +26,7 @@ const GeometricBackground = memo(({ variant, isDark }: { variant: 'landing' | 'd
   
   // Adjusted Intensity: Thin and elegant, reduced opacity (requested: visible but not intense)
   const beamColorStart = isDark ? 'rgba(34, 211, 238, 0)' : 'rgba(99, 102, 241, 0)'; 
-  const beamColorMid = isDark ? 'rgba(34, 211, 238, 0.3)' : 'rgba(99, 102, 241, 0.4)'; // Reduced opacity: 0.3/0.4
+  const beamColorMid = isDark ? 'rgba(34, 211, 238, 0.3)' : 'rgba(99, 102, 241, 0.4)'; // Reduced peak opacity: 0.3/0.4
   const beamColorEnd = isDark ? 'rgba(34, 211, 238, 0)' : 'rgba(99, 102, 241, 0)';
 
   const r1 = "M -100,150 L 200,150 L 300,323 L 600,323 L 700,496 L 1000,496 L 1100,669 L 1500,669";
@@ -118,8 +118,9 @@ const App = () => {
   // Scroll Restoration Ref
   const scrollPositions = useRef<Record<string, number>>({});
 
-  // Check if user is in Demo/Guest mode
-  const isDemo = !user || user.id === MOCK_USER.id || !isSupabaseConfigured();
+  // Check if user is in Demo mode (Strictly limited to the specific Mock User)
+  // Guests and Real Users are NOT considered "Demo" and will use production paths.
+  const isDemo = user?.id === MOCK_USER.id;
 
   // Update theme based on user preference
   useEffect(() => {
