@@ -83,17 +83,22 @@ export const fetchListings = async (isDemoMode: boolean) => {
   }
 
   try {
+      // CRITICAL FIX: Removed .neq('status', 'FLAGGED') from SQL.
+      // Postgres 'neq' excludes NULL values. Since some items might have NULL status,
+      // they were disappearing. We fetch all and filter FLAGGED in JS.
       const { data: listings, error } = await supabase
         .from('listings')
         .select('*')
-        .neq('status', 'FLAGGED') // Only globally exclude flagged/illegal items
         .order('created_at', { ascending: false });
 
       if (error) throw error;
       if (!listings || listings.length === 0) return [];
 
+      // Client-side safety filter that allows NULLs (Legacy items) but blocks FLAGGED
+      const validListings = listings.filter(l => l.status !== 'FLAGGED');
+
       // Fetch profiles of sellers to populate sellerName, hostel, etc.
-      const userIds = [...new Set(listings.map(l => l.seller_id))];
+      const userIds = [...new Set(validListings.map(l => l.seller_id))];
       
       if (userIds.length === 0) return [];
 
@@ -107,7 +112,7 @@ export const fetchListings = async (isDemoMode: boolean) => {
         return acc;
       }, {});
 
-      return listings.map(l => mapDbListingToProduct(l, profileMap));
+      return validListings.map(l => mapDbListingToProduct(l, profileMap));
   } catch (e) {
       console.error('Fetch listings failed:', e);
       // On error in production, return empty, NEVER return localProducts.
@@ -172,7 +177,8 @@ export const createListing = async (
       type: listingType,
       is_donation: formData.isDonation,
       expires_at: expiresAt,
-      payment_status: 'PAID'
+      payment_status: 'PAID',
+      status: 'ACTIVE' // CRITICAL FIX: Explicitly set status to ACTIVE
     })
     .select()
     .single();
@@ -329,19 +335,90 @@ export const fetchRecentlyViewedIds = async (userId: string, isDemoMode: boolean
 
 // --- STORAGE ---
 
+// Utility to compress images before upload
+const compressImage = async (file: File): Promise<File> => {
+  // If not an image, return original
+  if (!file.type.startsWith('image/')) return file;
+  
+  // If extremely small (< 500KB), return original to save processing
+  if (file.size < 500 * 1024) return file;
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { resolve(file); return; }
+
+        // Max dimensions
+        const MAX_WIDTH = 1280;
+        const MAX_HEIGHT = 1280;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Compress to JPEG 0.7
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            resolve(file);
+            return;
+          }
+          // Replace extension with .jpg
+          const newName = file.name.replace(/\.[^/.]+$/, ".jpg");
+          const compressedFile = new File([blob], newName, {
+            type: 'image/jpeg',
+            lastModified: Date.now(),
+          });
+          resolve(compressedFile);
+        }, 'image/jpeg', 0.7);
+      };
+      img.onerror = (e) => resolve(file); // Fallback to original
+    };
+    reader.onerror = (e) => resolve(file); // Fallback to original
+  });
+};
+
 export const uploadImage = async (file: File) => {
+  // For demo mode or unconfigured environments, we just return a local URL
+  // This avoids network overhead in development
   if (!isSupabaseConfigured()) {
-      // Fallback for preview only if no backend, but implies no persistence
       return URL.createObjectURL(file); 
   }
 
-  const fileExt = file.name.split('.').pop();
-  const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+  // OPTIMIZATION: Compress image before uploading to Supabase
+  let fileToUpload = file;
+  try {
+      fileToUpload = await compressImage(file);
+  } catch (e) {
+      console.warn("Image compression failed, falling back to original file", e);
+  }
+
+  const fileExt = fileToUpload.name.split('.').pop();
+  const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
   const filePath = `${fileName}`;
 
   const { error: uploadError } = await supabase.storage
     .from('item-images')
-    .upload(filePath, file);
+    .upload(filePath, fileToUpload);
 
   if (uploadError) throw uploadError;
 

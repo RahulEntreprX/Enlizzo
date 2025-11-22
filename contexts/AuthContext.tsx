@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getCurrentUserProfile, restoreAccount } from '../services/db';
@@ -11,6 +10,7 @@ interface AuthContextType {
   loginAsDemo: () => void;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  updateUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -19,6 +19,7 @@ const AuthContext = createContext<AuthContextType>({
   loginAsDemo: () => {},
   logout: async () => {},
   refreshUser: async () => {},
+  updateUser: () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -173,8 +174,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
   };
 
+  const updateUser = (updatedUser: User) => {
+    setUser(updatedUser);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, loginAsDemo, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, loginAsDemo, logout, refreshUser, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

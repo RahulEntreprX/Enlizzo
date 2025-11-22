@@ -1,5 +1,5 @@
-
 import React from 'react';
+import { flushSync } from 'react-dom';
 import { Moon, Sun, ShoppingBag, LogOut, ShieldCheck, ArrowRight, PlusCircle, User, ChevronRight, Home, Settings } from 'lucide-react';
 import { User as UserType } from '../types';
 import { Button } from './Button';
@@ -122,10 +122,16 @@ export const Navbar: React.FC<NavbarProps> = ({
     );
 
     const transition = doc.startViewTransition(() => {
-      toggleTheme();
+      flushSync(() => {
+        toggleTheme();
+      });
     });
 
     transition.ready.then(() => {
+      // Apple Fluid Easing: cubic-bezier(0.16, 1, 0.3, 1)
+      const appleFluidEasing = 'cubic-bezier(0.16, 1, 0.3, 1)';
+      const duration = 750;
+
       document.documentElement.animate(
         {
           clipPath: [
@@ -134,8 +140,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           ],
         },
         {
-          duration: 1000,
-          easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
+          duration: duration,
+          easing: appleFluidEasing,
           pseudoElement: '::view-transition-new(root)',
         }
       );
@@ -145,7 +151,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const ThemeToggle = () => (
     <button 
       onClick={handleThemeSwitch}
-      className="relative w-14 h-7 rounded-full bg-gray-200/50 dark:bg-white/5 border border-gray-200 dark:border-white/5 transition-all duration-300 hover:bg-gray-200 dark:hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+      className="relative w-14 h-7 rounded-full bg-gray-200/50 dark:bg-white/5 border border-gray-200 dark:border-white/5 transition-all duration-500 hover:bg-gray-200 dark:hover:bg-white/10 focus:outline-none"
       aria-label="Switch Theme"
     >
       <div className="absolute inset-0 flex items-center justify-between px-1.5 opacity-40 pointer-events-none">
@@ -153,17 +159,17 @@ export const Navbar: React.FC<NavbarProps> = ({
          <Moon size={10} className="text-indigo-600 dark:text-indigo-400" />
       </div>
       <div 
-        className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white dark:bg-slate-800 shadow-md border border-gray-100 dark:border-gray-700 flex items-center justify-center transform transition-all duration-500 cubic-bezier(0.34, 1.56, 0.64, 1) ${isDark ? 'translate-x-7' : 'translate-x-0'}`}
+        className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white dark:bg-slate-800 shadow-sm border border-gray-100 dark:border-gray-700 flex items-center justify-center transform transition-all duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${isDark ? 'translate-x-7' : 'translate-x-0'}`}
       >
          <div className="relative w-full h-full">
             <Sun 
               size={14} 
-              className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-amber-500 transition-all duration-300 ${isDark ? 'opacity-0 rotate-90 scale-0' : 'opacity-100 rotate-0 scale-100'}`} 
+              className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-amber-500 transition-all duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${isDark ? 'opacity-0 rotate-90 scale-50' : 'opacity-100 rotate-0 scale-100'}`} 
               fill="currentColor"
             />
             <Moon 
               size={14} 
-              className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-indigo-400 transition-all duration-300 ${isDark ? 'opacity-100 rotate-0 scale-100' : 'opacity-0 -rotate-90 scale-0'}`} 
+              className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-indigo-400 transition-all duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${isDark ? 'opacity-100 rotate-0 scale-100' : 'opacity-0 -rotate-90 scale-50'}`} 
               fill="currentColor"
             />
          </div>

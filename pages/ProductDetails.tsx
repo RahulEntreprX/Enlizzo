@@ -1,6 +1,5 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
-import { ArrowLeft, Share2, Heart, Phone, Flag, ShieldCheck, ChevronLeft, ChevronRight, Pencil, CheckCircle, Mail } from 'lucide-react';
+import { ArrowLeft, Share2, Heart, Phone, Flag, ShieldCheck, ChevronLeft, ChevronRight, Pencil, CheckCircle, Mail, X } from 'lucide-react';
 import { Product, User } from '../types';
 import { Button } from '../components/Button';
 import { updateListingStatus, reportListing, addToRecentlyViewed } from '../services/db';
@@ -25,6 +24,7 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
   isDemo
 }) => {
   const [showContact, setShowContact] = useState(false);
+  const [showFullImage, setShowFullImage] = useState(false);
   
   // Check if current user is the owner or ADMIN
   const isOwner = currentUser?.id === product.sellerId;
@@ -87,6 +87,44 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
   return (
     <div className="min-h-screen py-8 px-4 sm:px-6 lg:px-8 relative animate-fade-in">
       
+      {/* Full Screen Image Modal */}
+      {showFullImage && (
+        <div 
+          className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in cursor-pointer"
+          onClick={() => setShowFullImage(false)}
+        >
+          <button 
+            className="absolute top-6 right-6 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors z-50"
+            onClick={() => setShowFullImage(false)}
+          >
+            <X size={24} />
+          </button>
+          <img 
+            src={allImages[activeIndex]} 
+            alt={product.title} 
+            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl cursor-default"
+            onClick={(e) => e.stopPropagation()} 
+          />
+          {/* Navigation in Full View */}
+          {allImages.length > 1 && (
+            <>
+              <button 
+                onClick={(e) => { e.stopPropagation(); handlePrev(e); }} 
+                className="absolute left-4 p-3 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+              >
+                <ChevronLeft size={32} />
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); handleNext(e); }} 
+                className="absolute right-4 p-3 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+              >
+                <ChevronRight size={32} />
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="max-w-6xl mx-auto">
         {/* Inline Back Button - Converted to Anchor */}
         <div className="mb-6">
@@ -113,11 +151,14 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
           <div className="space-y-4">
-            <div className="aspect-square rounded-2xl overflow-hidden glass-panel p-1 relative group">
+            <div 
+              className="aspect-square rounded-2xl overflow-hidden glass-panel p-1 relative group cursor-zoom-in"
+              onClick={() => setShowFullImage(true)}
+            >
               <img src={allImages[activeIndex]} alt={product.title} className={`w-full h-full object-cover rounded-xl transition-all duration-500 ${product.isSold ? 'grayscale' : ''}`} />
               
               {product.isSold && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10">
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10 pointer-events-none">
                   <span className="px-6 py-2 bg-red-600 text-white text-3xl font-bold rounded-lg transform -rotate-12 border-4 border-white/50 shadow-2xl">SOLD</span>
                 </div>
               )}
@@ -228,4 +269,4 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
       </div>
     </div>
   );
-};
+}

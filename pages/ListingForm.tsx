@@ -78,9 +78,9 @@ export const ListingForm: React.FC<ListingFormProps> = ({ onBack, onSubmit, curr
 
     const file = e.target.files[0];
 
-    // 5MB Size Check
-    if (file.size > 5 * 1024 * 1024) {
-      alert("Image is too large. Please upload an image less than 5MB.");
+    // 5MB Size Check (Pre-compression check, though compression will fix it usually)
+    if (file.size > 10 * 1024 * 1024) {
+      alert("Image is too large. Please upload an image less than 10MB.");
       return;
     }
 
@@ -93,6 +93,8 @@ export const ListingForm: React.FC<ListingFormProps> = ({ onBack, onSubmit, curr
       alert("Failed to upload image.");
     } finally {
       setIsUploading(false);
+      // Reset input so same file can be selected again if needed (though unlikely for uploads)
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -265,14 +267,17 @@ export const ListingForm: React.FC<ListingFormProps> = ({ onBack, onSubmit, curr
                     </div>
                   ))}
                   {formData.images.length < 5 && (
-                    <div onClick={() => fileInputRef.current?.click()} className="h-24 w-24 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-slate-800/50 flex flex-col items-center justify-center text-gray-400 hover:border-indigo-500 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/10 cursor-pointer transition-all">
+                    <div 
+                        onClick={() => !isUploading && fileInputRef.current?.click()} 
+                        className={`h-24 w-24 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-slate-800/50 flex flex-col items-center justify-center text-gray-400 transition-all ${isUploading ? 'cursor-not-allowed opacity-50' : 'hover:border-indigo-500 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/10 cursor-pointer'}`}
+                    >
                       {isUploading ? <div className="animate-spin rounded-full h-6 w-6 border-2 border-indigo-500 border-t-transparent"></div> : <Upload size={24} />}
-                      <span className="text-xs mt-1 font-medium">Add Photo</span>
+                      <span className="text-xs mt-1 font-medium">{isUploading ? 'Uploading...' : 'Add Photo'}</span>
                     </div>
                   )}
                   <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
                 </div>
-                <p className="text-xs text-gray-500 mt-1">Max size 5MB per image.</p>
+                <p className="text-xs text-gray-500 mt-1">Max size 10MB per image (Compressed auto).</p>
               </div>
 
               <div>
@@ -348,17 +353,17 @@ export const ListingForm: React.FC<ListingFormProps> = ({ onBack, onSubmit, curr
                 fullWidth 
                 type="submit" 
                 size="lg"
-                disabled={!!priceError && !formData.isDonation}
+                disabled={!!priceError && !formData.isDonation || isUploading}
                 className={`
                   group relative overflow-hidden transition-all duration-300 h-14
-                  ${priceError && !formData.isDonation 
+                  ${(priceError && !formData.isDonation) || isUploading
                     ? 'bg-gray-100 dark:bg-slate-800 text-gray-400 border border-gray-200 dark:border-gray-700 opacity-100 cursor-not-allowed shadow-none' // Custom disabled style
                     : 'bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 bg-[length:200%_auto] hover:bg-[position:right_center] shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50 border-0 text-white transform hover:-translate-y-1'
                   }
                 `}
               >
                  {/* Decorative shimmer for enabled state */}
-                 {(!priceError || formData.isDonation) && (
+                 {(!priceError || formData.isDonation) && !isUploading && (
                     <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent z-0"></div>
                  )}
 
@@ -370,10 +375,12 @@ export const ListingForm: React.FC<ListingFormProps> = ({ onBack, onSubmit, curr
                       </>
                     ) : (
                       <>
-                        <span>Next: Select Plan</span>
-                        <div className="p-1 bg-white/20 rounded-full group-hover:translate-x-1 transition-transform duration-300 flex items-center justify-center">
-                          <ArrowRight size={18} strokeWidth={3} />
-                        </div>
+                        <span>{isUploading ? 'Uploading...' : 'Next: Select Plan'}</span>
+                        {!isUploading && (
+                            <div className="p-1 bg-white/20 rounded-full group-hover:translate-x-1 transition-transform duration-300 flex items-center justify-center">
+                                <ArrowRight size={18} strokeWidth={3} />
+                            </div>
+                        )}
                       </>
                     )}
                  </span>
