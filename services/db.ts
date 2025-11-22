@@ -1,4 +1,3 @@
-
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Product, User, Report } from '../types';
 import { MOCK_PRODUCTS, MOCK_USER } from '../constants';
@@ -49,7 +48,7 @@ const mapDbUserToAppUser = (dbUser: any): User => ({
 const mapDbListingToProduct = (dbListing: any, profileMap: any): Product => ({
   id: dbListing.id,
   title: dbListing.title,
-  price: Number(dbListing.price),
+  price: isNaN(Number(dbListing.price)) ? 0 : Number(dbListing.price),
   originalPrice: dbListing.original_price ? Number(dbListing.original_price) : undefined,
   description: dbListing.description,
   category: dbListing.category,
@@ -83,9 +82,6 @@ export const fetchListings = async (isDemoMode: boolean) => {
   }
 
   try {
-      // CRITICAL FIX: Removed .neq('status', 'FLAGGED') from SQL.
-      // Postgres 'neq' excludes NULL values. Since some items might have NULL status,
-      // they were disappearing. We fetch all and filter FLAGGED in JS.
       const { data: listings, error } = await supabase
         .from('listings')
         .select('*')
@@ -208,7 +204,51 @@ export const createListing = async (
   };
 };
 
-export const updateListingStatus = async (id: string, status: 'SOLD' | 'ARCHIVED' | 'FLAGGED', isDemoMode: boolean) => {
+export const updateListing = async (
+    productId: string,
+    formData: any,
+    isDemoMode: boolean
+): Promise<void> => {
+    if (isDemoMode) {
+        localProducts = localProducts.map(p => {
+            if (p.id === productId) {
+                return {
+                    ...p,
+                    title: formData.title,
+                    description: formData.description,
+                    price: formData.isDonation ? 0 : Number(formData.price),
+                    originalPrice: formData.originalPrice ? Number(formData.originalPrice) : undefined,
+                    category: formData.category,
+                    condition: formData.condition,
+                    images: formData.images,
+                };
+            }
+            return p;
+        });
+        saveToStorage(STORAGE_KEY_PRODUCTS, localProducts);
+        return;
+    }
+
+    if (!isSupabaseConfigured()) return;
+
+    const { error } = await supabase
+        .from('listings')
+        .update({
+            title: formData.title,
+            description: formData.description,
+            price: formData.isDonation ? 0 : Number(formData.price),
+            original_price: formData.originalPrice ? Number(formData.originalPrice) : null,
+            category: formData.category,
+            condition: formData.condition,
+            images: formData.images,
+            is_donation: formData.isDonation,
+        })
+        .eq('id', productId);
+
+    if (error) throw error;
+};
+
+export const updateListingStatus = async (id: string, status: 'SOLD' | 'ARCHIVED' | 'FLAGGED' | 'ACTIVE', isDemoMode: boolean) => {
   if (isDemoMode) {
       localProducts = localProducts.map(p => 
           p.id === id ? { ...p, status, isSold: status === 'SOLD' } : p
@@ -335,7 +375,7 @@ export const fetchRecentlyViewedIds = async (userId: string, isDemoMode: boolean
 
 // --- STORAGE ---
 
-// Utility to compress images before upload
+// Utility to compress images before uploading
 const compressImage = async (file: File): Promise<File> => {
   // If not an image, return original
   if (!file.type.startsWith('image/')) return file;

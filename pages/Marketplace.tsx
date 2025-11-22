@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Search, ChevronDown, Filter, X, Check, History, ChevronUp, Plus } from 'lucide-react';
 import { Product, Category, FilterState } from '../types';
@@ -58,7 +57,7 @@ export const Marketplace: React.FC<MarketplaceProps> = ({
     search: '',
     category: 'All',
     minPrice: 0,
-    maxPrice: 10000,
+    maxPrice: 100000, // FIX: Increased default max price to cover laptops/bikes
     hostel: 'All',
     donationOnly: false,
   });
@@ -102,15 +101,32 @@ export const Marketplace: React.FC<MarketplaceProps> = ({
 
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
-      // CRITICAL: HIDE SOLD AND ARCHIVED ITEMS from Marketplace
-      // Ensure we check for both boolean isSold and status string for robustness
-      if (p.isSold || p.status === 'SOLD' || p.status === 'ARCHIVED') return false;
+      // 1. Status Filter: Must be Active or Legacy (null status)
+      // Strictly hide Sold, Archived, or Flagged items
+      const status = p.status?.toUpperCase();
+      if (p.isSold || status === 'SOLD' || status === 'ARCHIVED' || status === 'FLAGGED') {
+        return false;
+      }
       
+      // 2. Search Filter
       if (filters.search && !p.title.toLowerCase().includes(filters.search.toLowerCase())) return false;
+      
+      // 3. Dropdown Filters
       if (filters.category !== 'All' && p.category !== filters.category) return false;
       if (filters.hostel !== 'All' && p.sellerHostel !== filters.hostel) return false;
-      if (filters.donationOnly && p.price > 0) return false;
-      if (!filters.donationOnly && (p.price < filters.minPrice || p.price > filters.maxPrice)) return false;
+      
+      // 4. Donation vs Sale Filter (Strict Separation)
+      const price = typeof p.price === 'number' ? p.price : 0;
+
+      if (filters.donationOnly) {
+         // If viewing donations, ONLY show items with price 0
+         if (price > 0) return false;
+      } else {
+         // If viewing sales, show items with price > 0 AND within range
+         if (price === 0) return false;
+         if (price < filters.minPrice || price > filters.maxPrice) return false;
+      }
+
       return true;
     });
   }, [filters, products]);
@@ -122,7 +138,7 @@ export const Marketplace: React.FC<MarketplaceProps> = ({
   }, [recentlyViewedIds, products]);
 
   const isFilterActive = useMemo(() => {
-      return filters.category !== 'All' || filters.hostel !== 'All' || filters.maxPrice < 10000 || filters.donationOnly;
+      return filters.category !== 'All' || filters.hostel !== 'All' || filters.maxPrice < 100000 || filters.donationOnly;
   }, [filters]);
 
   // --- Dropdown Hover Handlers ---
@@ -169,7 +185,7 @@ export const Marketplace: React.FC<MarketplaceProps> = ({
     const percentage = Math.max(0, Math.min(1, x / width));
     
     const min = 0;
-    const max = 10000;
+    const max = 100000; // Updated max
     const step = 500;
     
     const rawValue = min + percentage * (max - min);
@@ -281,7 +297,7 @@ export const Marketplace: React.FC<MarketplaceProps> = ({
           <button 
             onMouseEnter={(e) => handleMouseEnterDropdown('price', e)}
             onMouseLeave={handleMouseLeaveDropdown}
-            className={`flex items-center space-x-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${filters.maxPrice < 10000 ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300'}`}
+            className={`flex items-center space-x-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${filters.maxPrice < 100000 ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300'}`}
           >
             <span>Price</span>
             <ChevronDown size={14} className={`transition-transform ${activeDropdown === 'price' ? 'rotate-180' : ''}`} />
@@ -326,7 +342,7 @@ export const Marketplace: React.FC<MarketplaceProps> = ({
                      search: '',
                      category: 'All',
                      minPrice: 0,
-                     maxPrice: 10000,
+                     maxPrice: 100000,
                      hostel: 'All',
                      donationOnly: false
                    })}
@@ -460,7 +476,24 @@ export const Marketplace: React.FC<MarketplaceProps> = ({
                 <Search className="h-10 w-10 text-gray-400" />
               </div>
               <h3 className="text-lg font-medium text-gray-900 dark:text-white">No items found</h3>
-              <p className="text-gray-500 dark:text-gray-400">Try adjusting your filters or search query.</p>
+              <p className="text-gray-500 dark:text-gray-400 mb-4">
+                  {filters.donationOnly ? "No donation items found." : "No items for sale match your criteria."}
+              </p>
+              {(filters.minPrice > 0 || filters.maxPrice < 100000 || filters.category !== 'All' || filters.hostel !== 'All') && (
+                 <button 
+                   onClick={() => setFilters({
+                     search: '',
+                     category: 'All',
+                     minPrice: 0,
+                     maxPrice: 100000,
+                     hostel: 'All',
+                     donationOnly: filters.donationOnly
+                   })}
+                   className="text-indigo-500 hover:underline"
+                 >
+                   Clear Filters
+                 </button>
+              )}
             </div>
           )}
         </div>
@@ -510,20 +543,20 @@ export const Marketplace: React.FC<MarketplaceProps> = ({
                     {/* Track Fill */}
                     <div 
                         className="absolute left-0 h-1.5 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-75 ease-out pointer-events-none"
-                        style={{ width: `${(filters.maxPrice / 10000) * 100}%` }}
+                        style={{ width: `${(filters.maxPrice / 100000) * 100}%` }}
                     />
 
                     {/* Custom Thumb */}
                     <div 
                         className="absolute h-5 w-5 bg-white dark:bg-slate-900 border-[3px] border-indigo-500 rounded-full shadow-lg shadow-indigo-500/30 z-10 pointer-events-none transition-transform duration-75 ease-out transform -translate-x-1/2 group-hover:scale-110"
-                        style={{ left: `${(filters.maxPrice / 10000) * 100}%` }}
+                        style={{ left: `${(filters.maxPrice / 100000) * 100}%` }}
                     />
 
                     <input 
                         ref={sliderRef}
                         type="range" 
                         min="0" 
-                        max="10000" 
+                        max="100000" 
                         step="500" 
                         value={filters.maxPrice} 
                         onChange={(e) => setFilters({...filters, maxPrice: Number(e.target.value)})} 
@@ -547,8 +580,8 @@ export const Marketplace: React.FC<MarketplaceProps> = ({
                 
                 <div className="flex justify-between text-[10px] text-gray-400 font-mono mt-2 px-1">
                     <span>₹0</span>
-                    <span>₹5k</span>
-                    <span>₹10k</span>
+                    <span>₹50k</span>
+                    <span>₹1L</span>
                 </div>
               </div>
               <div className="flex justify-end pt-2 border-t border-gray-100 dark:border-white/5">

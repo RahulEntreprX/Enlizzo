@@ -111,6 +111,7 @@ const App = () => {
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [currentView, setCurrentView] = useState<ViewState>('landing');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [productToEdit, setProductToEdit] = useState<Product | null>(null);
   const [isBackgroundUpdating, setIsBackgroundUpdating] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -318,6 +319,11 @@ const App = () => {
       console.warn('Navigation URL update failed', e);
     }
 
+    // Clear edit state if navigating away from listing unless explicitly keeping it (not handled here)
+    if (view !== 'listing') {
+        setProductToEdit(null);
+    }
+
     setCurrentView(view);
     setSelectedProductId(null);
   };
@@ -353,6 +359,11 @@ const App = () => {
     setCurrentView('product-detail');
   };
 
+  const handleEditProduct = (product: Product) => {
+      setProductToEdit(product);
+      handleNavigate('listing');
+  };
+
   const handleToggleSave = (id: string) => {
     if (!user) return;
     const wasSaved = savedIds.has(id);
@@ -368,13 +379,19 @@ const App = () => {
     });
   };
 
-  const handleMarkAsSold = async (productId: string) => {
-    setProducts(prev => prev.map(p => p.id === productId ? { ...p, isSold: true, status: 'SOLD' } : p));
-    updateListingStatus(productId, 'SOLD', isDemo).catch(console.error);
+  const handleMarkAsSold = async (productId: string, newStatus: 'SOLD' | 'ACTIVE') => {
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, isSold: newStatus === 'SOLD', status: newStatus } : p));
+    updateListingStatus(productId, newStatus, isDemo).catch(console.error);
   };
 
   const handleListingComplete = async (newProduct: Product) => {
-    setProducts(prev => [newProduct, ...prev]);
+    setProducts(prev => {
+        const exists = prev.find(p => p.id === newProduct.id);
+        if (exists) {
+            return prev.map(p => p.id === newProduct.id ? newProduct : p);
+        }
+        return [newProduct, ...prev];
+    });
     handleNavigate('marketplace');
   };
 
@@ -435,8 +452,9 @@ const App = () => {
                   onBack={() => handleNavigate('marketplace')} 
                   isSaved={savedIds.has(selectedProduct.id)}
                   onToggleSave={() => handleToggleSave(selectedProduct.id)}
-                  onMarkAsSold={() => handleMarkAsSold(selectedProduct.id)}
+                  onMarkAsSold={(newStatus) => handleMarkAsSold(selectedProduct.id, newStatus)}
                   isDemo={isDemo}
+                  onEdit={handleEditProduct}
                 />
               ) : (
                 <div className="flex items-center justify-center min-h-[50vh]">
@@ -468,6 +486,7 @@ const App = () => {
                 onSubmit={handleListingComplete}
                 currentUser={user}
                 isDemo={isDemo}
+                editProduct={productToEdit}
               />
             )}
 

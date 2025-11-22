@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
-import { ArrowLeft, Share2, Heart, Phone, Flag, ShieldCheck, ChevronLeft, ChevronRight, Pencil, CheckCircle, Mail, X } from 'lucide-react';
+import { ArrowLeft, Share2, Heart, Phone, Flag, ShieldCheck, ChevronLeft, ChevronRight, Pencil, CheckCircle, Mail, X, RotateCcw } from 'lucide-react';
 import { Product, User } from '../types';
 import { Button } from '../components/Button';
 import { updateListingStatus, reportListing, addToRecentlyViewed } from '../services/db';
@@ -10,8 +11,9 @@ interface ProductDetailsProps {
   onBack: () => void;
   isSaved: boolean;
   onToggleSave: () => void;
-  onMarkAsSold: () => void;
+  onMarkAsSold: (newStatus: 'SOLD' | 'ACTIVE') => void;
   isDemo: boolean;
+  onEdit: (product: Product) => void;
 }
 
 export const ProductDetails: React.FC<ProductDetailsProps> = ({ 
@@ -21,7 +23,8 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
   isSaved, 
   onToggleSave,
   onMarkAsSold,
-  isDemo
+  isDemo,
+  onEdit
 }) => {
   const [showContact, setShowContact] = useState(false);
   const [showFullImage, setShowFullImage] = useState(false);
@@ -82,6 +85,15 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
       await updateListingStatus(product.id, 'FLAGGED', isDemo);
       onBack(); 
     }
+  };
+
+  const handleToggleStatus = () => {
+     const newStatus = product.isSold ? 'ACTIVE' : 'SOLD';
+     const action = product.isSold ? 'mark this item as AVAILABLE' : 'mark this item as SOLD';
+     
+     if (window.confirm(`Are you sure you want to ${action}?`)) {
+         onMarkAsSold(newStatus);
+     }
   };
 
   return (
@@ -243,17 +255,35 @@ export const ProductDetails: React.FC<ProductDetailsProps> = ({
               )}
 
               <div className="flex flex-col gap-3">
-                {product.isSold ? (
-                  <div className="p-4 bg-gray-100 dark:bg-white/10 rounded-xl text-center text-gray-500 font-medium">This item has been sold.</div>
-                ) : isOwner ? (
+                {isOwner ? (
                   <div className="grid grid-cols-2 gap-3">
-                     <Button fullWidth variant="outline" className="flex items-center justify-center gap-2">
+                     <Button 
+                        fullWidth 
+                        variant="outline" 
+                        className="flex items-center justify-center gap-2"
+                        onClick={() => onEdit(product)}
+                     >
                         <Pencil size={18} /> Edit
                      </Button>
-                     <Button fullWidth variant="success" className="flex items-center justify-center gap-2" onClick={onMarkAsSold}>
-                        <CheckCircle size={18} /> Mark Sold
+                     <Button 
+                        fullWidth 
+                        variant={product.isSold ? "secondary" : "success"}
+                        className="flex items-center justify-center gap-2" 
+                        onClick={handleToggleStatus}
+                     >
+                        {product.isSold ? (
+                            <>
+                                <RotateCcw size={18} /> Mark Available
+                            </>
+                        ) : (
+                            <>
+                                <CheckCircle size={18} /> Mark Sold
+                            </>
+                        )}
                      </Button>
                   </div>
+                ) : product.isSold ? (
+                  <div className="p-4 bg-gray-100 dark:bg-white/10 rounded-xl text-center text-gray-500 font-medium">This item has been sold.</div>
                 ) : (
                   <>
                     {!showContact && (

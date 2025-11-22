@@ -1,18 +1,19 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Upload, CheckCircle, Lock, Image as ImageIcon, X, AlertTriangle, ArrowRight, Heart } from 'lucide-react';
+import { ArrowLeft, Upload, CheckCircle, Lock, Image as ImageIcon, X, AlertTriangle, ArrowRight, Heart, Save } from 'lucide-react';
 import { Button } from '../components/Button';
 import { Category, Condition, User, Product } from '../types';
-import { uploadImage, createListing } from '../services/db';
+import { uploadImage, createListing, updateListing } from '../services/db';
 
 interface ListingFormProps {
   onBack: () => void;
   onSubmit: (product: Product) => void;
   currentUser: User | null;
   isDemo: boolean;
+  editProduct?: Product | null;
 }
 
-export const ListingForm: React.FC<ListingFormProps> = ({ onBack, onSubmit, currentUser, isDemo }) => {
+export const ListingForm: React.FC<ListingFormProps> = ({ onBack, onSubmit, currentUser, isDemo, editProduct }) => {
   const [step, setStep] = useState<1 | 2 | 3>(1); 
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -35,6 +36,24 @@ export const ListingForm: React.FC<ListingFormProps> = ({ onBack, onSubmit, curr
   
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [createdProduct, setCreatedProduct] = useState<Product | null>(null);
+
+  // Initialize form for Edit Mode
+  useEffect(() => {
+    if (editProduct) {
+      setFormData({
+        title: editProduct.title,
+        description: editProduct.description,
+        price: editProduct.price === 0 ? '0' : editProduct.price.toString(),
+        originalPrice: editProduct.originalPrice ? editProduct.originalPrice.toString() : '',
+        category: editProduct.category,
+        otherCategoryDetail: '', // Detail extraction logic omitted for simplicity in this pass
+        condition: editProduct.condition,
+        images: editProduct.images,
+        isDonation: editProduct.price === 0,
+        tier: editProduct.type || 'STANDARD'
+      });
+    }
+  }, [editProduct]);
 
   // Real-time Validation Logic
   useEffect(() => {
@@ -117,6 +136,12 @@ export const ListingForm: React.FC<ListingFormProps> = ({ onBack, onSubmit, curr
       return;
     }
 
+    // If editing, skip payment flow and update directly
+    if (editProduct) {
+       handleFinalSubmit('updated_no_payment_needed');
+       return;
+    }
+
     if (formData.isDonation) {
       handleFinalSubmit('donation_free');
     } else {
@@ -147,15 +172,24 @@ export const ListingForm: React.FC<ListingFormProps> = ({ onBack, onSubmit, curr
     };
 
     try {
-      const product = await createListing(submissionData, currentUser, formData.tier, paymentId, isDemo);
-      setCreatedProduct(product);
-      setStep(3);
-      setTimeout(() => {
-        onSubmit(product);
-      }, 2000);
+      if (editProduct) {
+          await updateListing(editProduct.id, submissionData, isDemo);
+          setCreatedProduct({ ...editProduct, ...submissionData } as any); // Quick UI update
+          setStep(3);
+          setTimeout(() => {
+            onSubmit({ ...editProduct, ...submissionData } as any);
+          }, 2000);
+      } else {
+          const product = await createListing(submissionData, currentUser, formData.tier, paymentId, isDemo);
+          setCreatedProduct(product);
+          setStep(3);
+          setTimeout(() => {
+            onSubmit(product);
+          }, 2000);
+      }
     } catch (error) {
       console.error(error);
-      alert("Failed to create listing. Please try again.");
+      alert("Failed to save listing. Please try again.");
     }
   };
 
@@ -170,7 +204,7 @@ export const ListingForm: React.FC<ListingFormProps> = ({ onBack, onSubmit, curr
           <div className="inline-flex items-center justify-center h-24 w-24 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 mb-6">
             <CheckCircle size={48} />
           </div>
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Listing Published!</h2>
+          <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">{editProduct ? 'Listing Updated!' : 'Listing Published!'}</h2>
           <p className="text-gray-500 dark:text-gray-400">Your item is now live.</p>
         </div>
       </div>
@@ -199,7 +233,7 @@ export const ListingForm: React.FC<ListingFormProps> = ({ onBack, onSubmit, curr
 
         <div className="glass-panel rounded-2xl p-8">
           <div className="mb-8 border-b border-gray-200 dark:border-white/10 pb-6">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{step === 1 ? 'List an Item' : 'Select Plan & Pay'}</h1>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{editProduct ? 'Edit Listing' : (step === 1 ? 'List an Item' : 'Select Plan & Pay')}</h1>
           </div>
 
           {step === 1 ? (
@@ -368,7 +402,12 @@ export const ListingForm: React.FC<ListingFormProps> = ({ onBack, onSubmit, curr
                  )}
 
                  <span className="relative z-10 flex items-center justify-center gap-3 font-bold tracking-wide text-base">
-                    {formData.isDonation ? (
+                    {editProduct ? (
+                        <>
+                          <Save size={18} />
+                          <span>Update Listing</span>
+                        </>
+                    ) : formData.isDonation ? (
                       <>
                         <div className="p-1 bg-white/20 rounded-full"><Heart size={16} className="fill-white" /></div>
                         <span>Publish Donation</span>
