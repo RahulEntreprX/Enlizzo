@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Product, User, Report, AdminLog, SystemSettings } from '../types';
-import { MOCK_PRODUCTS, MOCK_USER } from '../constants';
+import { MOCK_PRODUCTS, MOCK_USER, CAMPUSES } from '../constants';
 
 // --- IN-MEMORY STORE FOR DEMO MODE (Fallback) ---
 const STORAGE_KEY_PRODUCTS = 'enlizzo_demo_products';
@@ -620,17 +620,30 @@ export const getCurrentUserProfile = async (authUser: any): Promise<User | null>
     return null;
   }
 
-  // Fetch profile from DB with Campus Slug (Joined)
-  let { data, error } = await supabase
-    .from('profiles')
-    .select('*, campuses(slug)')
-    .eq('id', userId)
-    .single();
+  // Helper to fetch profile with campus join
+  const fetchProfile = async () => {
+    return supabase
+      .from('profiles')
+      .select('*, campuses(slug)')
+      .eq('id', userId)
+      .single();
+  };
 
+  // 1. Try fetching existing profile
+  let { data, error } = await fetchProfile();
+
+  // 2. If missing (error code PGRST116), try to create it
   if (!data && (error?.code === 'PGRST116')) {
-    // User exists in Auth but not in Profiles? 
-    // This usually shouldn't happen if the trigger is working correctly.
-    // But if it does, we attempt to create one, letting the Trigger assign the campus.
+
+    // FIX: Explicitly resolve campus_id from email to ensure correct insertion
+    // This replaces the reliance on the "force_listing_campus" trigger if it's failing/missing
+    const email = authUser.email?.toLowerCase() || '';
+    const matchedCampus = CAMPUSES.find(c => c.emailDomains.some(d => email.endsWith(d)));
+
+    if (!matchedCampus) {
+      console.error("Profile creation rejected: Email domain not supported", email);
+      return null;
+    }
 
     const newProfile = {
       id: userId,
@@ -639,23 +652,30 @@ export const getCurrentUserProfile = async (authUser: any): Promise<User | null>
       avatar_url: authUser.user_metadata?.avatar_url,
       role: 'USER',
       hostel: 'Unknown',
-      theme: 'dark'
-      // campus_id omitted - Trigger handles it
+      theme: 'dark',
+      campus_id: matchedCampus.id // Explicitly assigned
     };
 
-    const { data: createdProfile, error: createError } = await supabase
+    // Attempt Insert
+    const { error: insertError } = await supabase
       .from('profiles')
-      .insert(newProfile)
-      .select('*, campuses(slug)')
-      .single();
+      .insert(newProfile);
 
-    if (createError) {
-      console.error("Failed to create profile:", createError);
-      // If trigger rejected it (invalid domain), we return null
+    // Race condition handling: 
+    // If insert fails because it already exists (code 23505), we ignore the error 
+    // and proceed to fetch the profile again.
+    if (insertError && insertError.code !== '23505') {
+      console.error("Failed to create profile:", insertError);
       return null;
     }
-    data = createdProfile;
-  } else if (error) {
+
+    // 3. Fetch again (works whether we just inserted OR if it existed)
+    const retry = await fetchProfile();
+    data = retry.data;
+    error = retry.error;
+  }
+
+  if (error || !data) {
     console.error("Error fetching profile:", error);
     return null;
   }
