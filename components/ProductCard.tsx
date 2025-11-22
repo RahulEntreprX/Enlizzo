@@ -53,11 +53,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                 e.stopPropagation();
                 onToggleSave(e);
               }}
-              className="absolute top-1 right-1 p-1 rounded-full bg-black/20 backdrop-blur-sm hover:bg-black/40 transition-colors z-20"
+              className="absolute top-1 right-1 p-1.5 z-20 hover:scale-110 active:scale-90 transition-transform focus:outline-none"
             >
                <Heart 
-                size={12} 
-                className={`transition-colors ${isSaved ? 'fill-pink-500 text-pink-500' : 'text-white'}`} 
+                size={14} 
+                className={`transition-all duration-300 drop-shadow-md ${isSaved ? 'fill-pink-500 text-pink-500' : 'text-white'}`} 
               />
             </button>
           )}
@@ -108,18 +108,19 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           )}
         </div>
 
-        {/* Save Button - Explicit Z-index to sit above everything */}
+        {/* Save Button - Instagram Style Hollow Heart */}
         <button 
           onClick={(e) => {
              e.preventDefault();
              e.stopPropagation();
              if (onToggleSave) onToggleSave(e);
           }}
-          className="absolute top-2 right-2 p-1.5 rounded bg-white/90 dark:bg-black/50 hover:bg-white dark:hover:bg-black/70 text-gray-600 dark:text-white/70 transition-colors backdrop-blur-sm border border-gray-200 dark:border-white/10 shadow-sm z-20 active:scale-90"
+          className="absolute top-2 right-2 p-2 z-20 transition-transform duration-200 active:scale-90 hover:scale-110 focus:outline-none"
         >
           <Heart 
-            size={16} 
-            className={`transition-colors ${isSaved ? 'fill-pink-500 text-pink-500' : 'text-current'}`} 
+            size={22} 
+            strokeWidth={2.5}
+            className={`transition-all duration-300 drop-shadow-[0_2px_8px_rgba(0,0,0,0.3)] ${isSaved ? 'fill-pink-500 text-pink-500' : 'text-white'}`} 
           />
         </button>
       </div>
