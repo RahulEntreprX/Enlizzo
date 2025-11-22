@@ -40,10 +40,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onDemoL
 
     // 1. Domain Validation (Strict)
     const isTest = trimmedEmail.includes('test') || trimmedEmail.includes('admin'); 
+    // Strict match via constants (must end with @domain.ac.in)
     const isValidDomain = ALLOWED_DOMAINS.some(domain => trimmedEmail.endsWith(domain));
 
     if (!isValidDomain && !isTest) {
-      setError('Access restricted. Please use a valid IIT email address.');
+      setError('Access Denied. Only authorized emails from: iitd.ac.in, iitk.ac.in, iitr.ac.in, iitb.ac.in, iitm.ac.in');
       setStatus('IDLE');
       return;
     }

@@ -4,13 +4,14 @@ import { Category, Condition, Product, User, CampusConfig } from './types';
 export const APP_NAME = 'Enlizzo';
 
 // --- CAMPUS CONFIGURATION ---
-// NOTE: In a real DB architecture, these would be rows in a 'campuses' table.
+// STRICT DOMAIN ENFORCEMENT: Only specific .ac.in domains are allowed.
+// No subdomains or aliases.
 export const CAMPUSES: CampusConfig[] = [
   {
     id: 'iitd',
     slug: 'iitd',
     name: 'IIT Delhi',
-    emailDomains: ['@iitd.ac.in', '@iitd.df.in'],
+    emailDomains: ['@iitd.ac.in'],
     hostels: [
       'Aravali', 'Girnar', 'Himadri', 'Jwalamukhi', 'Kailash', 
       'Karakoram', 'Kumaon', 'Nilgiri', 'Satpura', 'Shivalik', 

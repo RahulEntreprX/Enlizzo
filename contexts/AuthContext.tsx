@@ -83,9 +83,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         return profile;
       } else {
-          // Profile creation failed (likely due to email domain trigger rejection)
+          // Profile creation failed.
+          // The logic in getCurrentUserProfile is robust, so if we get null here, 
+          // it means the email domain was truly invalid or the DB is down.
           await supabase.auth.signOut();
-          alert("Access Denied: Your email domain is not authorized for any campus.");
+          alert("Access Denied: Could not verify profile. Please check your email domain or try again later.");
           return null;
       }
     } catch (error) {
