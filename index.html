@@ -32,6 +32,18 @@
                 400: '#22d3ee',
                 500: '#06b6d4',
                 900: '#164e63',
+              },
+              // Admin Specific Theme Token Extension
+              admin: {
+                bg: 'var(--admin-bg)',
+                panel: 'var(--admin-panel)',
+                border: 'var(--admin-border)',
+                text: 'var(--admin-text)',
+                muted: 'var(--admin-muted)',
+                primary: 'var(--admin-primary)',
+                accent: 'var(--admin-accent)',
+                danger: 'var(--admin-danger)',
+                success: 'var(--admin-success)',
               }
             },
             fontFamily: {
@@ -91,6 +103,35 @@
     </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
+      /* === ADMIN PORTAL THEME VARIABLES === */
+      :root {
+        /* Light Theme: Pastel-Neumorphic Glass */
+        --admin-bg: #F8F9FC;
+        --admin-panel: rgba(255, 255, 255, 0.85);
+        --admin-border: #E0E3F0;
+        --admin-text: #1D1E2C;
+        --admin-muted: #8A8BA0;
+        --admin-primary: #4A6CF7;
+        --admin-accent: #A66CFF;
+        --admin-danger: #FF6DAF;
+        --admin-success: #24D18F;
+        --admin-gold: #FFC658;
+      }
+
+      .dark {
+        /* Dark Theme: Matte Premium */
+        --admin-bg: #0D0D0F;
+        --admin-panel: #131416;
+        --admin-border: rgba(115, 108, 94, 0.2);
+        --admin-text: #FFFFFF;
+        --admin-muted: #A0A1A2;
+        --admin-primary: #E6C24C; /* Gold */
+        --admin-accent: #C59F2A;
+        --admin-danger: #9D463F; /* Muted Red */
+        --admin-success: #8BA66A; /* Olive */
+        --admin-gold: #E6C24C;
+      }
+
       body {
         font-family: 'Inter', sans-serif;
         overflow-x: hidden;
@@ -234,11 +275,9 @@
   }
 }
 </script>
-<link rel="stylesheet" href="/index.css">
 </head>
   <body class="antialiased text-slate-900 dark:text-white selection:bg-indigo-500 selection:text-white transition-colors duration-300">
     <div id="root"></div>
     <script type="module" src="./index.tsx"></script>
-  <script type="module" src="/index.tsx"></script>
-</body>
+  </body>
 </html>

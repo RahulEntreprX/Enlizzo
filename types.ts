@@ -8,7 +8,7 @@ export interface User {
   phone?: string;
   year?: string;
   bio?: string;
-  role?: 'USER' | 'ADMIN';
+  role?: 'USER' | 'ADMIN' | 'SUPER_ADMIN' | 'MODERATOR';
   isBanned?: boolean;
   deletionRequestedAt?: string | null;
   theme?: 'dark' | 'light';
@@ -75,4 +75,22 @@ export interface Report {
   createdAt: string;
   listing?: Partial<Product> & { sellerName?: string; sellerEmail?: string };
   reporter?: Partial<User>;
+}
+
+export interface AdminLog {
+    id: string;
+    actorId: string;
+    actorName: string;
+    action: string;
+    target: string;
+    details?: string;
+    timestamp: string;
+    type: 'INFO' | 'WARNING' | 'DANGER';
+}
+
+export interface SystemSettings {
+    priceCapPercentage: number;
+    maintenanceMode: boolean;
+    allowNewSignups: boolean;
+    systemNotice: string;
 }

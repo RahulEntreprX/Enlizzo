@@ -1,5 +1,6 @@
+
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { Product, User, Report } from '../types';
+import { Product, User, Report, AdminLog, SystemSettings } from '../types';
 import { MOCK_PRODUCTS, MOCK_USER } from '../constants';
 
 // --- IN-MEMORY STORE FOR DEMO MODE (Fallback) ---
@@ -8,6 +9,8 @@ const STORAGE_KEY_REPORTS = 'enlizzo_demo_reports';
 const STORAGE_KEY_USERS = 'enlizzo_demo_users';
 const STORAGE_KEY_SAVED = 'enlizzo_demo_saved';
 const STORAGE_KEY_RECENT = 'enlizzo_demo_recent';
+const STORAGE_KEY_LOGS = 'enlizzo_demo_logs';
+const STORAGE_KEY_SETTINGS = 'enlizzo_demo_settings';
 
 const loadFromStorage = (key: string, defaultData: any) => {
   try {
@@ -27,6 +30,15 @@ let localReports: Report[] = loadFromStorage(STORAGE_KEY_REPORTS, []);
 let localUsers: Record<string, User> = loadFromStorage(STORAGE_KEY_USERS, { [MOCK_USER.id]: MOCK_USER });
 let localSaved: Record<string, string[]> = loadFromStorage(STORAGE_KEY_SAVED, {}); // userId -> [productId]
 let localRecent: Record<string, { id: string, at: number }[]> = loadFromStorage(STORAGE_KEY_RECENT, {}); // userId -> [{id, at}]
+let localLogs: AdminLog[] = loadFromStorage(STORAGE_KEY_LOGS, [
+    { id: 'l1', actorId: 'system', actorName: 'System', action: 'System Startup', target: 'Server', details: 'v1.0 initialized', timestamp: new Date().toISOString(), type: 'INFO' }
+]);
+let localSettings: SystemSettings = loadFromStorage(STORAGE_KEY_SETTINGS, {
+    priceCapPercentage: 70,
+    maintenanceMode: false,
+    allowNewSignups: true,
+    systemNotice: ''
+});
 
 // --- MAPPING HELPERS ---
 
@@ -91,6 +103,7 @@ export const fetchListings = async (isDemoMode: boolean) => {
       if (!listings || listings.length === 0) return [];
 
       // Client-side safety filter that allows NULLs (Legacy items) but blocks FLAGGED
+      // NOTE: Admin fetch needs separate function to see FLAGGED items
       const validListings = listings.filter(l => l.status !== 'FLAGGED');
 
       // Fetch profiles of sellers to populate sellerName, hostel, etc.
@@ -148,6 +161,7 @@ export const createListing = async (
       };
       localProducts = [newProduct, ...localProducts];
       saveToStorage(STORAGE_KEY_PRODUCTS, localProducts);
+      createLog('system', 'System', 'Listing Created', newId, `User ${user.name} created listing`, 'INFO', isDemoMode);
       return newProduct;
   }
   
@@ -545,6 +559,7 @@ export const dismissReport = async (reportId: string, isDemoMode: boolean) => {
   if (isDemoMode) {
       localReports = localReports.filter(r => r.id !== reportId);
       saveToStorage(STORAGE_KEY_REPORTS, localReports);
+      createLog('system', 'Admin', 'Report Dismissed', reportId, '', 'INFO', isDemoMode);
       return;
   }
   
@@ -558,6 +573,7 @@ export const deleteListing = async (listingId: string, isDemoMode: boolean) => {
     if (isDemoMode) {
         localProducts = localProducts.filter(p => p.id !== listingId);
         saveToStorage(STORAGE_KEY_PRODUCTS, localProducts);
+        createLog('system', 'Admin', 'Listing Deleted', listingId, '', 'DANGER', isDemoMode);
         return;
     }
     
@@ -573,6 +589,7 @@ export const banUser = async (userId: string, isDemoMode: boolean) => {
         if (localUsers[userId]) {
             localUsers[userId].isBanned = true;
             saveToStorage(STORAGE_KEY_USERS, localUsers);
+            createLog('system', 'Admin', 'User Banned', userId, '', 'DANGER', isDemoMode);
         }
         return;
     }
@@ -709,3 +726,57 @@ export const restoreAccount = async (userId: string, isDemoMode: boolean) => {
         .eq('id', userId);
     if (error) throw error;
 }
+
+// --- ADMIN EXTENSIONS ---
+
+export const fetchAllUsers = async (isDemoMode: boolean): Promise<User[]> => {
+  if (isDemoMode) return Object.values(localUsers);
+  if (!isSupabaseConfigured()) return [];
+  const { data, error } = await supabase.from('profiles').select('*');
+  if (error) throw error;
+  return data.map(mapDbUserToAppUser);
+};
+
+export const fetchAdminStats = async (isDemoMode: boolean) => {
+    const products = await fetchListings(isDemoMode);
+    const users = await fetchAllUsers(isDemoMode);
+    const reports = await fetchReports(isDemoMode);
+    
+    return {
+        totalUsers: users.length,
+        activeProducts: products.filter(p => !p.isSold).length,
+        pendingReports: reports.length,
+        totalValue: products.reduce((sum, p) => sum + (p.price || 0), 0),
+        recentUsers: users.slice(0, 5)
+    };
+};
+
+export const createLog = async (actorId: string, actorName: string, action: string, target: string, details: string, type: 'INFO' | 'WARNING' | 'DANGER', isDemoMode: boolean) => {
+    if (isDemoMode) {
+        const log: AdminLog = { id: `l${Date.now()}`, actorId, actorName, action, target, details, timestamp: new Date().toISOString(), type };
+        localLogs = [log, ...localLogs].slice(0, 100);
+        saveToStorage(STORAGE_KEY_LOGS, localLogs);
+        return;
+    }
+    // Supabase impl would go here
+};
+
+export const fetchSystemLogs = async (isDemoMode: boolean): Promise<AdminLog[]> => {
+    if (isDemoMode) return [...localLogs];
+    // Supabase impl would go here
+    return [];
+};
+
+export const fetchSystemSettings = async (isDemoMode: boolean): Promise<SystemSettings> => {
+    if (isDemoMode) return localSettings;
+    // Supabase impl would go here
+    return localSettings;
+};
+
+export const updateSystemSettings = async (settings: SystemSettings, isDemoMode: boolean) => {
+    if (isDemoMode) {
+        localSettings = settings;
+        saveToStorage(STORAGE_KEY_SETTINGS, localSettings);
+        createLog('system', 'Admin', 'System Settings Updated', 'Global', '', 'WARNING', isDemoMode);
+    }
+};
