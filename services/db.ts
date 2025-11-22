@@ -1,5 +1,3 @@
-// services/db.ts
-
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Product, User, Report, AdminLog, SystemSettings } from '../types';
 import { MOCK_PRODUCTS, MOCK_USER } from '../constants';
@@ -122,6 +120,9 @@ export const fetchListings = async (isDemoMode: boolean) => {
   if (!isSupabaseConfigured()) return [];
 
   try {
+    // DB HARDENING UPDATE:
+    // We no longer manually filter by campus_id.
+    // Row Level Security (RLS) strictly enforces isolation.
     const { data: listings, error } = await supabase
       .from('listings')
       .select('*')
@@ -135,6 +136,7 @@ export const fetchListings = async (isDemoMode: boolean) => {
 
     if (userIds.length === 0) return [];
 
+    // Profiles RLS also ensures we only fetch profiles in our campus
     const { data: profiles } = await supabase
       .from('profiles')
       .select('id, name, hostel, email, phone')
@@ -166,6 +168,7 @@ export const fetchProductBySlug = async (slug: string, isDemoMode: boolean): Pro
     .single();
 
   if (error || !listing) {
+    // Fallback to fetch all if single query fails (rare edge case with RLS)
     const all = await fetchListings(false);
     return all.find(p => p.slug === slug) || null;
   }
@@ -184,6 +187,8 @@ export const fetchAdminListings = async (isDemoMode: boolean) => {
   if (isDemoMode) return [...localProducts];
   if (!isSupabaseConfigured()) return [];
 
+  // Admins might need a special RLS policy (e.g. "View All Campuses" for Super Admin)
+  // For now, this respects the authenticated user's RLS context.
   const { data: listings, error } = await supabase
     .from('listings')
     .select('*')
@@ -246,6 +251,10 @@ export const createListing = async (
     ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
     : null;
 
+  // DB HARDENING UPDATE:
+  // Removed 'campus_id' from the insert payload.
+  // The DB Trigger 'force_listing_campus' now strictly fetches the 
+  // campus_id from the user's profile and applies it server-side.
   const { data, error } = await supabase
     .from('listings')
     .insert({
@@ -263,6 +272,7 @@ export const createListing = async (
       expires_at: expiresAt,
       payment_status: 'PAID',
       status: 'ACTIVE'
+      // campus_id is AUTO-ASSIGNED by Trigger
     })
     .select()
     .single();
@@ -290,7 +300,7 @@ export const createListing = async (
     status: 'ACTIVE',
     type: listingType,
     expiresAt: data.expires_at,
-    campusId: data.campus_id
+    campusId: data.campus_id // Return the assigned campus
   };
 };
 
@@ -414,6 +424,7 @@ export const addToRecentlyViewed = async (userId: string, listingId: string, isD
   }
   if (!isSupabaseConfigured()) return;
 
+  // RLS ensures user can only insert their own history
   const { error } = await supabase
     .from('recently_viewed')
     .upsert({
@@ -543,6 +554,7 @@ export const fetchReports = async (isDemoMode: boolean) => {
 
   if (error) throw error;
 
+  // Fetch Seller info manually (since joining listings->seller might be blocked by RLS if we are not strictly 'admin' role with bypass)
   const sellerIds = [...new Set(reports.map((r: any) => r.listing?.seller_id).filter(Boolean))];
   const { data: sellers } = await supabase.from('profiles').select('id, name, email').in('id', sellerIds);
   const sellerMap = (sellers || []).reduce((acc: any, s: any) => { acc[s.id] = s; return acc; }, {});
@@ -608,20 +620,18 @@ export const getCurrentUserProfile = async (authUser: any): Promise<User | null>
     return null;
   }
 
-  // Helper to fetch profile with campus join
-  const fetchProfile = async () => {
-    return supabase
-      .from('profiles')
-      .select('*, campuses(slug)')
-      .eq('id', userId)
-      .single();
-  };
+  // Fetch profile from DB with Campus Slug (Joined)
+  let { data, error } = await supabase
+    .from('profiles')
+    .select('*, campuses(slug)')
+    .eq('id', userId)
+    .single();
 
-  // 1. Try fetching existing profile
-  let { data, error } = await fetchProfile();
-
-  // 2. If missing (error code PGRST116), try to create it
   if (!data && (error?.code === 'PGRST116')) {
+    // User exists in Auth but not in Profiles? 
+    // This usually shouldn't happen if the trigger is working correctly.
+    // But if it does, we attempt to create one, letting the Trigger assign the campus.
+
     const newProfile = {
       id: userId,
       email: authUser.email,
@@ -630,29 +640,22 @@ export const getCurrentUserProfile = async (authUser: any): Promise<User | null>
       role: 'USER',
       hostel: 'Unknown',
       theme: 'dark'
-      // campus_id is handled by DB trigger
+      // campus_id omitted - Trigger handles it
     };
 
-    // Attempt Insert
-    const { error: insertError } = await supabase
+    const { data: createdProfile, error: createError } = await supabase
       .from('profiles')
-      .insert(newProfile);
+      .insert(newProfile)
+      .select('*, campuses(slug)')
+      .single();
 
-    // Race condition handling: 
-    // If insert fails because it already exists (code 23505), we ignore the error 
-    // and proceed to fetch the profile again.
-    if (insertError && insertError.code !== '23505') {
-      console.error("Failed to create profile:", insertError);
+    if (createError) {
+      console.error("Failed to create profile:", createError);
+      // If trigger rejected it (invalid domain), we return null
       return null;
     }
-
-    // 3. Fetch again (works whether we just inserted OR if it existed)
-    const retry = await fetchProfile();
-    data = retry.data;
-    error = retry.error;
-  }
-
-  if (error || !data) {
+    data = createdProfile;
+  } else if (error) {
     console.error("Error fetching profile:", error);
     return null;
   }
@@ -670,6 +673,7 @@ export const updateUserProfile = async (userId: string, updates: any, isDemoMode
   }
   if (!isSupabaseConfigured()) throw new Error("Not configured");
 
+  // Note: We select campuses(slug) to keep the User object complete for UI state
   const { data, error } = await supabase
     .from('profiles')
     .update({
@@ -707,6 +711,7 @@ export const restoreAccount = async (userId: string, isDemoMode: boolean) => {
 export const fetchAllUsers = async (isDemoMode: boolean): Promise<User[]> => {
   if (isDemoMode) return Object.values(localUsers);
   if (!isSupabaseConfigured()) return [];
+  // Admin needs to see campus slugs too if we add columns later
   const { data, error } = await supabase.from('profiles').select('*, campuses(slug)');
   if (error) throw error;
   return data.map(mapDbUserToAppUser);
