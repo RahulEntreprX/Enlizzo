@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#4f46e5" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ENLIZZO" />
+    <title>ENLIZZO | IIT Delhi Marketplace</title>
+    <link rel="manifest" href="/manifest.json" />
+    <!-- PWA Icons (PNG) - Must match manifest for consistency -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/pwa-192x192.png" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              gray: {
+                850: '#1f2937',
+                900: '#111827',
+                950: '#030712',
+              },
+              primary: {
+                500: '#6366f1',
+                600: '#4f46e5',
+              },
+              cyan: {
+                400: '#22d3ee',
+                500: '#06b6d4',
+                900: '#164e63',
+              },
+              // Admin Specific Theme Token Extension
+              admin: {
+                bg: 'var(--admin-bg)',
+                panel: 'var(--admin-panel)',
+                surface: 'var(--admin-surface)',
+                border: 'var(--admin-border)',
+                text: 'var(--admin-text)',
+                muted: 'var(--admin-muted)',
+                primary: 'var(--admin-primary)',
+                'primary-fg': 'var(--admin-primary-fg)',
+                accent: 'var(--admin-accent)',
+                danger: 'var(--admin-danger)',
+                success: 'var(--admin-success)',
+                warning: 'var(--admin-warning)',
+                shadow: 'var(--admin-shadow)',
+              }
+            },
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
+            },
+            animation: {
+              'fade-in': 'fadeIn 0.7s cubic-bezier(0.2, 0.8, 0.2, 1)',
+              'slide-up': 'slideUp 0.7s cubic-bezier(0.2, 0.8, 0.2, 1)',
+              'beam-horizontal': 'beamHorizontal 3s infinite linear',
+              'beam-vertical': 'beamVertical 3s infinite linear',
+              'pulse-glow': 'pulseGlow 2s infinite ease-in-out',
+              'shimmer': 'shimmer 2.5s linear infinite',
+              'dash': 'dash 8s linear infinite',
+              'dash-reverse': 'dash 8s linear infinite reverse',
+              'floor-slide': 'floorSlide 4s linear infinite',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%': { opacity: '0' },
+                '100%': { opacity: '1' },
+              },
+              slideUp: {
+                '0%': { transform: 'translateY(40px)', opacity: '0' },
+                '100%': { transform: 'translateY(0)', opacity: '1' },
+              },
+              beamHorizontal: {
+                '0%': { transform: 'translateX(-100%)', opacity: '0' },
+                '50%': { opacity: '1' },
+                '100%': { transform: 'translateX(100%)', opacity: '0' },
+              },
+              beamVertical: {
+                '0%': { transform: 'translateY(-100%)', opacity: '0' },
+                '50%': { opacity: '1' },
+                '100%': { transform: 'translateY(100%)', opacity: '0' },
+              },
+              pulseGlow: {
+                '0%, 100%': { opacity: '0.4', transform: 'scale(1)' },
+                '50%': { opacity: '1', transform: 'scale(1.1)' },
+              },
+              shimmer: {
+                '0%': { transform: 'translateX(-100%)' },
+                '100%': { transform: 'translateX(100%)' },
+              },
+              dash: {
+                '0%': { strokeDashoffset: '2000' },
+                '100%': { strokeDashoffset: '0' },
+              },
+              floorSlide: {
+                '0%': { backgroundPosition: '0 0' },
+                '100%': { backgroundPosition: '0 100px' }, /* Matches pattern height to ensure seamless loop */
+              }
+            }
+          },
+        },
+      }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+      /* === ADMIN PORTAL THEME VARIABLES === */
+      :root {
+        /* Light Theme: Pastel-Neumorphic Glass (UPDATED) */
+        --admin-bg: #F8F9FC;
+        --admin-panel: rgba(255, 255, 255, 0.75);
+        --admin-surface: #FFFFFF;
+        --admin-border: #E0E3F0;
+        --admin-text: #1D1E2C;
+        --admin-muted: #8A8BA0;
+        
+        --admin-primary: #4A6CF7;      /* Electric Blue */
+        --admin-primary-fg: #FFFFFF;
+        --admin-accent: #C299FF;       /* Soft Purple */
+        
+        --admin-success: #24D18F;      /* Mint */
+        --admin-warning: #FFC658;      /* Pastel Orange */
+        --admin-danger: #FF6DAF;       /* Candy Pink */
+        
+        --admin-shadow: 0 8px 32px rgba(0, 0, 0, 0.05);
+      }
+
+      .dark {
+        /* Dark Theme: TC Schedule Matte Premium (UPDATED) */
+        --admin-bg: #0D0D0F;
+        --admin-panel: #131416;
+        --admin-surface: #1A1B1E;
+        --admin-border: rgba(115, 108, 94, 0.2); /* Subtle taupe border */
+        --admin-text: #FFFFFF;
+        --admin-muted: #A0A1A2;
+
+        --admin-primary: #E6C24C;      /* Matte Gold */
+        --admin-primary-fg: #000000;
+        --admin-accent: #736C5E;       /* Earth Tone */
+        
+        --admin-success: #8BA66A;      /* Olive */
+        --admin-warning: #F0D16B;      /* Pale Gold */
+        --admin-danger: #9D463F;       /* Muted Red */
+        
+        --admin-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        overflow-x: hidden;
+        background-color: #F0F4F8;
+        transition: background-color 0.3s ease;
+        /* Changed to manipulation to allow clicks + standard gestures without delay */
+        touch-action: manipulation; 
+        -webkit-tap-highlight-color: transparent;
+      }
+      .dark body {
+        background-color: #030712;
+      }
+
+      /* === CUSTOM SCROLLBAR === */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(156, 163, 175, 0.5); /* Gray-400 with opacity */
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(107, 114, 128, 0.8); /* Gray-500 with opacity */
+      }
+      .dark ::-webkit-scrollbar-thumb {
+        background: rgba(51, 65, 85, 0.6); /* Slate-700 with opacity */
+      }
+      .dark ::-webkit-scrollbar-thumb:hover {
+        background: rgba(71, 85, 105, 0.9); /* Slate-600 with opacity */
+      }
+      /* === END CUSTOM SCROLLBAR === */
+
+      /* Optimization helpers */
+      .will-change-transform { will-change: transform; }
+      .backface-hidden { -webkit-backface-visibility: hidden; backface-visibility: hidden; }
+      
+      /* Tech Borders: Adaptive */
+      .tech-border {
+        position: relative;
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.08), 0 4px 8px -2px rgba(0, 0, 0, 0.04);
+        transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+      }
+      .dark .tech-border {
+        background: rgba(17, 24, 39, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: none;
+      }
+      
+      /* Corner Accents */
+      .corner-accent::before,
+      .corner-accent::after {
+        content: '';
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        border: 1px solid rgba(99, 102, 241, 0.5);
+        transition: all 0.3s ease;
+      }
+      .corner-accent::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+      .corner-accent::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+      
+      .corner-accent:hover::before,
+      .corner-accent:hover::after {
+        width: 100%;
+        height: 100%;
+        border-color: rgba(99, 102, 241, 0.8);
+        opacity: 0.5;
+      }
+
+      /* Scrollbar Utility to hide */
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+      /* Text Selection */
+      ::selection {
+        background: rgba(99, 102, 241, 0.3);
+        color: #fff;
+      }
+
+      /* Glass Panel Utility: Optimized */
+      .glass-panel {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(40px);
+        -webkit-backdrop-filter: blur(40px);
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.08), 0 6px 12px -4px rgba(0, 0, 0, 0.04);
+        transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+        /* GPU Promotion */
+        transform: translate3d(0,0,0);
+      }
+      
+      .dark .glass-panel {
+        background: rgba(15, 23, 42, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
+      }
+      
+      /* Portal Card Specific */
+      .portal-card {
+         background: rgba(255, 255, 255, 0.95);
+         backdrop-filter: blur(50px);
+         -webkit-backdrop-filter: blur(50px);
+         border: 1px solid rgba(99, 102, 241, 0.25);
+         box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+         transform: translate3d(0,0,0);
+      }
+      .dark .portal-card {
+        background: rgba(3, 7, 18, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        box-shadow: 0 0 50px rgba(79,70,229,0.15);
+      }
+
+      /* === VIEW TRANSITION ANIMATION === */
+      ::view-transition-old(root),
+      ::view-transition-new(root) {
+        animation: none;
+        mix-blend-mode: normal;
+      }
+      ::view-transition-image-pair(root) {
+        isolation: isolate;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0",
+    "react-dom/client": "https://aistudiocdn.com/react-dom@^19.2.0/client",
+    "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@^2.83.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="antialiased text-slate-900 dark:text-white selection:bg-indigo-500 selection:text-white transition-colors duration-300">
+    <div id="root"></div>
+    <script type="module" src="./index.tsx"></script>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
