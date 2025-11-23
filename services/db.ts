@@ -1,4 +1,3 @@
-
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Product, User, Report, AdminLog, SystemSettings } from '../types';
 import { MOCK_PRODUCTS, MOCK_USER, CAMPUSES } from '../constants';
@@ -24,15 +23,14 @@ export const generateSlug = (title: string): string => {
 };
 
 export const generateLegacySlug = (title: string, id: string): string => {
-   const base = title
+  const base = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)+/g, '');
-   // Simple hash for demo consistency
-   let hash = 0;
-   for (let i = 0; i < id.length; i++) hash = ((hash << 5) - hash) + id.charCodeAt(i) | 0;
-   const suffix = Math.abs(hash).toString(36);
-   return `${base}-${suffix}`;
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = ((hash << 5) - hash) + id.charCodeAt(i) | 0;
+  const suffix = Math.abs(hash).toString(36);
+  return `${base}-${suffix}`;
 };
 
 const loadFromStorage = (key: string, defaultData: any) => {
@@ -45,27 +43,62 @@ const loadFromStorage = (key: string, defaultData: any) => {
 };
 
 const saveToStorage = (key: string, data: any) => {
-    localStorage.setItem(key, JSON.stringify(data));
+  localStorage.setItem(key, JSON.stringify(data));
 };
 
 let localProducts: Product[] = loadFromStorage(STORAGE_KEY_PRODUCTS, MOCK_PRODUCTS.map(p => ({
-    ...p,
-    slug: p.slug || generateLegacySlug(p.title, p.id)
+  ...p,
+  slug: p.slug || generateLegacySlug(p.title, p.id)
 })));
 
 let localReports: Report[] = loadFromStorage(STORAGE_KEY_REPORTS, []);
 let localUsers: Record<string, User> = loadFromStorage(STORAGE_KEY_USERS, { [MOCK_USER.id]: MOCK_USER });
-let localSaved: Record<string, string[]> = loadFromStorage(STORAGE_KEY_SAVED, {}); 
-let localRecent: Record<string, { id: string, at: number }[]> = loadFromStorage(STORAGE_KEY_RECENT, {}); 
+let localSaved: Record<string, string[]> = loadFromStorage(STORAGE_KEY_SAVED, {});
+let localRecent: Record<string, { id: string, at: number }[]> = loadFromStorage(STORAGE_KEY_RECENT, {});
 let localLogs: AdminLog[] = loadFromStorage(STORAGE_KEY_LOGS, [
-    { id: 'l1', actorId: 'system', actorName: 'System', action: 'System Startup', target: 'Server', details: 'v1.0 initialized', timestamp: new Date().toISOString(), type: 'INFO' }
+  { id: 'l1', actorId: 'system', actorName: 'System', action: 'System Startup', target: 'Server', details: 'v1.0 initialized', timestamp: new Date().toISOString(), type: 'INFO' }
 ]);
 let localSettings: SystemSettings = loadFromStorage(STORAGE_KEY_SETTINGS, {
-    priceCapPercentage: 70,
-    maintenanceMode: false,
-    allowNewSignups: true,
-    systemNotice: ''
+  priceCapPercentage: 70,
+  maintenanceMode: false,
+  allowNewSignups: true,
+  systemNotice: ''
 });
+
+// --- HELPER: Fetch Campus UUID by Email ---
+export const getCampusByEmail = async (email: string) => {
+  if (!email || !isSupabaseConfigured()) return null;
+
+  // Normalize email: trim whitespace, convert to lowercase
+  const normalizedEmail = email.trim().toLowerCase();
+
+  // Extract the substring after @ (the domain)
+  const parts = normalizedEmail.split('@');
+  if (parts.length < 2) return null;
+  const userDomain = parts[1];
+
+  // Fetch all campuses
+  // We fetch all because the table is small and it allows us to do robust normalization in code
+  // rather than relying on strict DB casing.
+  const { data: campuses, error } = await supabase
+    .from('campuses')
+    .select('*');
+
+  if (error || !campuses) {
+    console.error("Failed to fetch campuses for email verification", error);
+    return null;
+  }
+
+  // Match only strict equality against the domain_pattern
+  // We normalize the DB pattern as well to be safe against data entry errors (whitespace/case)
+  const match = campuses.find(c => {
+    if (!c.domain_pattern) return false;
+    const dbPattern = c.domain_pattern.trim().toLowerCase();
+    return dbPattern === userDomain;
+  });
+
+  return match || null;
+}
 
 // --- MAPPING HELPERS ---
 
@@ -114,73 +147,71 @@ export const mapDbListingToProduct = (dbListing: any, profileMap: any): Product 
 
 export const fetchListings = async (isDemoMode: boolean) => {
   if (isDemoMode) {
-      const demoCampusId = MOCK_USER.campusId || 'iitd';
-      return localProducts.filter(p => p.campusId === demoCampusId);
+    const demoCampusId = MOCK_USER.campusId || 'iitd';
+    return localProducts.filter(p => p.campusId === demoCampusId);
   }
 
   if (!isSupabaseConfigured()) return [];
 
   try {
-      // DB HARDENING UPDATE:
-      // We no longer manually filter by campus_id.
-      // Row Level Security (RLS) strictly enforces isolation.
-      const { data: listings, error } = await supabase
-        .from('listings')
-        .select('*')
-        .order('created_at', { ascending: false });
+    // RLS filters listings automatically based on policy if needed, 
+    // but generally listings are public within the context or filtered by query.
+    const { data: listings, error } = await supabase
+      .from('listings')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      if (!listings || listings.length === 0) return [];
+    if (error) throw error;
+    if (!listings || listings.length === 0) return [];
 
-      const validListings = listings.filter(l => l.status !== 'FLAGGED');
-      const userIds = [...new Set(validListings.map(l => l.seller_id))];
-      
-      if (userIds.length === 0) return [];
+    const validListings = listings.filter(l => l.status !== 'FLAGGED');
+    const userIds = [...new Set(validListings.map(l => l.seller_id))];
 
-      // Profiles RLS also ensures we only fetch profiles in our campus
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, name, hostel, email, phone')
-        .in('id', userIds);
+    if (userIds.length === 0) return [];
 
-      const profileMap = (profiles || []).reduce((acc: any, p: any) => {
-        acc[p.id] = p;
-        return acc;
-      }, {});
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, name, hostel, email, phone')
+      .in('id', userIds);
 
-      return validListings.map(l => mapDbListingToProduct(l, profileMap));
+    const profileMap = (profiles || []).reduce((acc: any, p: any) => {
+      acc[p.id] = p;
+      return acc;
+    }, {});
+
+    return validListings.map(l => mapDbListingToProduct(l, profileMap));
   } catch (e) {
-      console.error('Fetch listings failed:', e);
-      return []; 
+    console.error('Fetch listings failed:', e);
+    return [];
   }
 };
 
 export const fetchProductBySlug = async (slug: string, isDemoMode: boolean): Promise<Product | null> => {
-    if (isDemoMode) {
-        return localProducts.find(p => p.slug === slug) || null;
-    }
+  if (isDemoMode) {
+    return localProducts.find(p => p.slug === slug) || null;
+  }
 
-    if (!isSupabaseConfigured()) return null;
+  if (!isSupabaseConfigured()) return null;
 
-    const { data: listing, error } = await supabase
-        .from('listings')
-        .select('*')
-        .eq('slug', slug)
-        .single();
+  const { data: listing, error } = await supabase
+    .from('listings')
+    .select('*')
+    .eq('slug', slug)
+    .single();
 
-    if (error || !listing) {
-        const all = await fetchListings(false);
-        return all.find(p => p.slug === slug) || null;
-    }
+  if (error || !listing) {
+    const all = await fetchListings(false);
+    return all.find(p => p.slug === slug) || null;
+  }
 
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', listing.seller_id)
-        .single();
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', listing.seller_id)
+    .single();
 
-    const profileMap = profile ? { [profile.id]: profile } : {};
-    return mapDbListingToProduct(listing, profileMap);
+  const profileMap = profile ? { [profile.id]: profile } : {};
+  return mapDbListingToProduct(listing, profileMap);
 };
 
 export const fetchAdminListings = async (isDemoMode: boolean) => {
@@ -203,50 +234,50 @@ export const fetchAdminListings = async (isDemoMode: boolean) => {
 };
 
 export const createListing = async (
-  formData: any, 
-  user: User, 
+  formData: any,
+  user: User,
   listingType: 'STANDARD' | 'FOREVER',
   paymentId: string,
   isDemoMode: boolean
 ): Promise<Product> => {
-  
+
   const slug = generateSlug(formData.title);
 
   if (isDemoMode) {
-      const newId = `p${Date.now()}`;
-      const newProduct: Product = {
-          id: newId,
-          slug: slug,
-          title: formData.title,
-          description: formData.description,
-          price: formData.isDonation ? 0 : Number(formData.price),
-          originalPrice: formData.originalPrice ? Number(formData.originalPrice) : undefined,
-          category: formData.category,
-          condition: formData.condition,
-          images: formData.images,
-          sellerId: user.id,
-          sellerName: user.name,
-          sellerHostel: user.hostel,
-          sellerEmail: user.email,
-          sellerPhone: user.phone,
-          createdAt: new Date().toLocaleDateString(),
-          likes: 0,
-          isSold: false,
-          status: 'ACTIVE',
-          type: listingType,
-          campusId: user.campusId || 'iitd'
-      };
-      localProducts = [newProduct, ...localProducts];
-      saveToStorage(STORAGE_KEY_PRODUCTS, localProducts);
-      return newProduct;
-  }
-  
-  if (!isSupabaseConfigured()) {
-      throw new Error("Production Database not configured");
+    const newId = `p${Date.now()}`;
+    const newProduct: Product = {
+      id: newId,
+      slug: slug,
+      title: formData.title,
+      description: formData.description,
+      price: formData.isDonation ? 0 : Number(formData.price),
+      originalPrice: formData.originalPrice ? Number(formData.originalPrice) : undefined,
+      category: formData.category,
+      condition: formData.condition,
+      images: formData.images,
+      sellerId: user.id,
+      sellerName: user.name,
+      sellerHostel: user.hostel,
+      sellerEmail: user.email,
+      sellerPhone: user.phone,
+      createdAt: new Date().toLocaleDateString(),
+      likes: 0,
+      isSold: false,
+      status: 'ACTIVE',
+      type: listingType,
+      campusId: user.campusId || 'iitd'
+    };
+    localProducts = [newProduct, ...localProducts];
+    saveToStorage(STORAGE_KEY_PRODUCTS, localProducts);
+    return newProduct;
   }
 
-  const expiresAt = listingType === 'STANDARD' 
-    ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() 
+  if (!isSupabaseConfigured()) {
+    throw new Error("Production Database not configured");
+  }
+
+  const expiresAt = listingType === 'STANDARD'
+    ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
     : null;
 
   const { data, error } = await supabase
@@ -266,7 +297,7 @@ export const createListing = async (
       expires_at: expiresAt,
       payment_status: 'PAID',
       status: 'ACTIVE',
-      campus_id: user.campusId // Explicitly passed to be safe
+      campus_id: user.campusId
     })
     .select()
     .single();
@@ -274,183 +305,183 @@ export const createListing = async (
   if (error) throw error;
 
   return {
-      id: data.id,
-      slug: data.slug || slug,
-      title: data.title,
-      price: Number(data.price),
-      originalPrice: data.original_price ? Number(data.original_price) : undefined,
-      description: data.description,
-      category: data.category,
-      condition: data.condition,
-      images: data.images || [],
-      sellerId: user.id,
-      sellerName: user.name,
-      sellerHostel: user.hostel,
-      sellerEmail: user.email,
-      sellerPhone: user.phone,
-      createdAt: new Date(data.created_at).toLocaleDateString(), 
-      likes: 0,
-      isSold: false,
-      status: 'ACTIVE',
-      type: listingType,
-      expiresAt: data.expires_at,
-      campusId: data.campus_id 
+    id: data.id,
+    slug: data.slug || slug,
+    title: data.title,
+    price: Number(data.price),
+    originalPrice: data.original_price ? Number(data.original_price) : undefined,
+    description: data.description,
+    category: data.category,
+    condition: data.condition,
+    images: data.images || [],
+    sellerId: user.id,
+    sellerName: user.name,
+    sellerHostel: user.hostel,
+    sellerEmail: user.email,
+    sellerPhone: user.phone,
+    createdAt: new Date(data.created_at).toLocaleDateString(),
+    likes: 0,
+    isSold: false,
+    status: 'ACTIVE',
+    type: listingType,
+    expiresAt: data.expires_at,
+    campusId: data.campus_id
   };
 };
 
 export const updateListing = async (
-    productId: string,
-    formData: any,
-    isDemoMode: boolean
+  productId: string,
+  formData: any,
+  isDemoMode: boolean
 ): Promise<void> => {
-    if (isDemoMode) {
-        localProducts = localProducts.map(p => {
-            if (p.id === productId) {
-                return {
-                    ...p,
-                    title: formData.title,
-                    description: formData.description,
-                    price: formData.isDonation ? 0 : Number(formData.price),
-                    originalPrice: formData.originalPrice ? Number(formData.originalPrice) : undefined,
-                    category: formData.category,
-                    condition: formData.condition,
-                    images: formData.images,
-                };
-            }
-            return p;
-        });
-        saveToStorage(STORAGE_KEY_PRODUCTS, localProducts);
-        return;
-    }
+  if (isDemoMode) {
+    localProducts = localProducts.map(p => {
+      if (p.id === productId) {
+        return {
+          ...p,
+          title: formData.title,
+          description: formData.description,
+          price: formData.isDonation ? 0 : Number(formData.price),
+          originalPrice: formData.originalPrice ? Number(formData.originalPrice) : undefined,
+          category: formData.category,
+          condition: formData.condition,
+          images: formData.images,
+        };
+      }
+      return p;
+    });
+    saveToStorage(STORAGE_KEY_PRODUCTS, localProducts);
+    return;
+  }
 
-    if (!isSupabaseConfigured()) return;
+  if (!isSupabaseConfigured()) return;
 
-    const { error } = await supabase
-        .from('listings')
-        .update({
-            title: formData.title,
-            description: formData.description,
-            price: formData.isDonation ? 0 : Number(formData.price),
-            original_price: formData.originalPrice ? Number(formData.originalPrice) : null,
-            category: formData.category,
-            condition: formData.condition,
-            images: formData.images,
-            is_donation: formData.isDonation,
-        })
-        .eq('id', productId);
+  const { error } = await supabase
+    .from('listings')
+    .update({
+      title: formData.title,
+      description: formData.description,
+      price: formData.isDonation ? 0 : Number(formData.price),
+      original_price: formData.originalPrice ? Number(formData.originalPrice) : null,
+      category: formData.category,
+      condition: formData.condition,
+      images: formData.images,
+      is_donation: formData.isDonation,
+    })
+    .eq('id', productId);
 
-    if (error) throw error;
+  if (error) throw error;
 };
 
 export const updateListingStatus = async (id: string, status: 'SOLD' | 'ARCHIVED' | 'FLAGGED' | 'ACTIVE', isDemoMode: boolean) => {
   if (isDemoMode) {
-      localProducts = localProducts.map(p => 
-          p.id === id ? { ...p, status, isSold: status === 'SOLD' } : p
-      );
-      saveToStorage(STORAGE_KEY_PRODUCTS, localProducts);
-      return;
+    localProducts = localProducts.map(p =>
+      p.id === id ? { ...p, status, isSold: status === 'SOLD' } : p
+    );
+    saveToStorage(STORAGE_KEY_PRODUCTS, localProducts);
+    return;
   }
-  
+
   if (!isSupabaseConfigured()) return;
 
   const { error } = await supabase
     .from('listings')
     .update({ status })
     .eq('id', id);
-    
+
   if (error) throw error;
 };
 
 // --- SAVED ITEMS ---
 
 export const fetchSavedItems = async (userId: string, isDemoMode: boolean): Promise<Set<string>> => {
-    if (isDemoMode) {
-        return new Set(localSaved[userId] || []);
-    }
-    if (!isSupabaseConfigured()) return new Set();
+  if (isDemoMode) {
+    return new Set(localSaved[userId] || []);
+  }
+  if (!isSupabaseConfigured()) return new Set();
 
-    const { data, error } = await supabase
-        .from('saved_items')
-        .select('listing_id')
-        .eq('user_id', userId);
+  const { data, error } = await supabase
+    .from('saved_items')
+    .select('listing_id')
+    .eq('user_id', userId);
 
-    if (error) return new Set();
-    return new Set(data?.map((item: any) => item.listing_id) || []);
+  if (error) return new Set();
+  return new Set(data?.map((item: any) => item.listing_id) || []);
 };
 
 export const toggleSavedItem = async (userId: string, listingId: string, isCurrentlySaved: boolean, isDemoMode: boolean) => {
-    if (isDemoMode) {
-        const current = localSaved[userId] || [];
-        if (isCurrentlySaved) {
-            localSaved[userId] = current.filter(id => id !== listingId);
-        } else {
-            localSaved[userId] = [...current, listingId];
-        }
-        saveToStorage(STORAGE_KEY_SAVED, localSaved);
-        return;
-    }
-    if (!isSupabaseConfigured()) return;
-
+  if (isDemoMode) {
+    const current = localSaved[userId] || [];
     if (isCurrentlySaved) {
-        const { error } = await supabase
-            .from('saved_items')
-            .delete()
-            .match({ user_id: userId, listing_id: listingId });
-        if (error) throw error;
+      localSaved[userId] = current.filter(id => id !== listingId);
     } else {
-        const { error } = await supabase
-            .from('saved_items')
-            .upsert({ user_id: userId, listing_id: listingId }, { onConflict: 'user_id, listing_id' });
-        if (error) throw error;
+      localSaved[userId] = [...current, listingId];
     }
+    saveToStorage(STORAGE_KEY_SAVED, localSaved);
+    return;
+  }
+  if (!isSupabaseConfigured()) return;
+
+  if (isCurrentlySaved) {
+    const { error } = await supabase
+      .from('saved_items')
+      .delete()
+      .match({ user_id: userId, listing_id: listingId });
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('saved_items')
+      .upsert({ user_id: userId, listing_id: listingId }, { onConflict: 'user_id, listing_id' });
+    if (error) throw error;
+  }
 };
 
 // --- RECENTLY VIEWED ---
 
 export const addToRecentlyViewed = async (userId: string, listingId: string, isDemoMode: boolean) => {
-    if (isDemoMode) {
-        const userHistory = localRecent[userId] || [];
-        const filtered = userHistory.filter(x => x.id !== listingId);
-        filtered.unshift({ id: listingId, at: Date.now() });
-        localRecent[userId] = filtered.slice(0, 20); 
-        saveToStorage(STORAGE_KEY_RECENT, localRecent);
-        return;
-    }
-    if (!isSupabaseConfigured()) return;
+  if (isDemoMode) {
+    const userHistory = localRecent[userId] || [];
+    const filtered = userHistory.filter(x => x.id !== listingId);
+    filtered.unshift({ id: listingId, at: Date.now() });
+    localRecent[userId] = filtered.slice(0, 20);
+    saveToStorage(STORAGE_KEY_RECENT, localRecent);
+    return;
+  }
+  if (!isSupabaseConfigured()) return;
 
-    const { error } = await supabase
-        .from('recently_viewed')
-        .upsert({ 
-            user_id: userId, 
-            listing_id: listingId, 
-            viewed_at: new Date().toISOString() 
-        }, { onConflict: 'user_id, listing_id' });
-    
-    if (error) console.debug("Failed to update history:", error.message);
+  const { error } = await supabase
+    .from('recently_viewed')
+    .upsert({
+      user_id: userId,
+      listing_id: listingId,
+      viewed_at: new Date().toISOString()
+    }, { onConflict: 'user_id, listing_id' });
+
+  if (error) console.debug("Failed to update history:", error.message);
 };
 
 export const fetchRecentlyViewedIds = async (userId: string, isDemoMode: boolean): Promise<string[]> => {
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const sevenDaysAgoIso = sevenDaysAgo.toISOString();
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const sevenDaysAgoIso = sevenDaysAgo.toISOString();
 
-    if (isDemoMode) {
-        const list = localRecent[userId] || [];
-        const filtered = list.filter(item => item.at > sevenDaysAgo.getTime());
-        return filtered.map(x => x.id);
-    }
+  if (isDemoMode) {
+    const list = localRecent[userId] || [];
+    const filtered = list.filter(item => item.at > sevenDaysAgo.getTime());
+    return filtered.map(x => x.id);
+  }
 
-    if (!isSupabaseConfigured()) return [];
+  if (!isSupabaseConfigured()) return [];
 
-    const { data, error } = await supabase
-        .from('recently_viewed')
-        .select('listing_id')
-        .eq('user_id', userId)
-        .gte('viewed_at', sevenDaysAgoIso)
-        .order('viewed_at', { ascending: false })
-        .limit(20);
+  const { data, error } = await supabase
+    .from('recently_viewed')
+    .select('listing_id')
+    .eq('user_id', userId)
+    .gte('viewed_at', sevenDaysAgoIso)
+    .order('viewed_at', { ascending: false })
+    .limit(20);
 
-    if (error) return [];
-    return data?.map((r: any) => r.listing_id) || [];
+  if (error) return [];
+  return data?.map((r: any) => r.listing_id) || [];
 };
 
 // --- IMAGE UPLOAD ---
@@ -504,10 +535,10 @@ const compressImage = async (file: File): Promise<File> => {
 };
 
 export const uploadImage = async (file: File) => {
-  if (!isSupabaseConfigured()) return URL.createObjectURL(file); 
+  if (!isSupabaseConfigured()) return URL.createObjectURL(file);
 
   let fileToUpload = file;
-  try { fileToUpload = await compressImage(file); } catch (e) {}
+  try { fileToUpload = await compressImage(file); } catch (e) { }
 
   const fileExt = fileToUpload.name.split('.').pop();
   const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
@@ -527,10 +558,10 @@ export const uploadImage = async (file: File) => {
 
 export const reportListing = async (listingId: string, reporterId: string, reason: string, isDemoMode: boolean) => {
   if (isDemoMode) {
-      const newReport: any = { id: `r${Date.now()}`, listingId, reporterId, reason, createdAt: new Date().toISOString(), listing: {}, reporter: {} };
-      localReports.push(newReport);
-      saveToStorage(STORAGE_KEY_REPORTS, localReports);
-      return;
+    const newReport: any = { id: `r${Date.now()}`, listingId, reporterId, reason, createdAt: new Date().toISOString(), listing: {}, reporter: {} };
+    localReports.push(newReport);
+    saveToStorage(STORAGE_KEY_REPORTS, localReports);
+    return;
   }
   if (!isSupabaseConfigured()) throw new Error("Not configured");
   const { error } = await supabase.from('reports').insert({ listing_id: listingId, reporter_id: reporterId, reason });
@@ -558,12 +589,12 @@ export const fetchReports = async (isDemoMode: boolean) => {
     reason: r.reason,
     createdAt: r.created_at,
     listing: {
-        id: r.listing.id,
-        slug: r.listing.slug || generateLegacySlug(r.listing.title, r.listing.id),
-        title: r.listing.title,
-        sellerId: r.listing.seller_id,
-        sellerName: sellerMap[r.listing.seller_id]?.name || 'Unknown',
-        sellerEmail: sellerMap[r.listing.seller_id]?.email
+      id: r.listing.id,
+      slug: r.listing.slug || generateLegacySlug(r.listing.title, r.listing.id),
+      title: r.listing.title,
+      sellerId: r.listing.seller_id,
+      sellerName: sellerMap[r.listing.seller_id]?.name || 'Unknown',
+      sellerEmail: sellerMap[r.listing.seller_id]?.email
     },
     reporter: { id: r.reporter?.id, name: r.reporter?.name, email: r.reporter?.email }
   })) as Report[];
@@ -571,9 +602,9 @@ export const fetchReports = async (isDemoMode: boolean) => {
 
 export const dismissReport = async (reportId: string, isDemoMode: boolean) => {
   if (isDemoMode) {
-      localReports = localReports.filter(r => r.id !== reportId);
-      saveToStorage(STORAGE_KEY_REPORTS, localReports);
-      return;
+    localReports = localReports.filter(r => r.id !== reportId);
+    saveToStorage(STORAGE_KEY_REPORTS, localReports);
+    return;
   }
   if (!isSupabaseConfigured()) return;
   const { error } = await supabase.from('reports').delete().eq('id', reportId);
@@ -581,26 +612,26 @@ export const dismissReport = async (reportId: string, isDemoMode: boolean) => {
 };
 
 export const deleteListing = async (listingId: string, isDemoMode: boolean) => {
-    if (isDemoMode) {
-        localProducts = localProducts.filter(p => p.id !== listingId);
-        saveToStorage(STORAGE_KEY_PRODUCTS, localProducts);
-        return;
-    }
-    if (!isSupabaseConfigured()) return;
-    await supabase.from('reports').delete().eq('listing_id', listingId);
-    const { error } = await supabase.from('listings').delete().eq('id', listingId);
-    if (error) throw error;
+  if (isDemoMode) {
+    localProducts = localProducts.filter(p => p.id !== listingId);
+    saveToStorage(STORAGE_KEY_PRODUCTS, localProducts);
+    return;
+  }
+  if (!isSupabaseConfigured()) return;
+  await supabase.from('reports').delete().eq('listing_id', listingId);
+  const { error } = await supabase.from('listings').delete().eq('id', listingId);
+  if (error) throw error;
 }
 
 export const banUser = async (userId: string, isDemoMode: boolean) => {
-    if (isDemoMode) {
-        if (localUsers[userId]) localUsers[userId].isBanned = true;
-        saveToStorage(STORAGE_KEY_USERS, localUsers);
-        return;
-    }
-    if (!isSupabaseConfigured()) return;
-    const { error } = await supabase.from('profiles').update({ is_banned: true }).eq('id', userId);
-    if (error) throw error;
+  if (isDemoMode) {
+    if (localUsers[userId]) localUsers[userId].isBanned = true;
+    saveToStorage(STORAGE_KEY_USERS, localUsers);
+    return;
+  }
+  if (!isSupabaseConfigured()) return;
+  const { error } = await supabase.from('profiles').update({ is_banned: true }).eq('id', userId);
+  if (error) throw error;
 };
 
 // --- USER PROFILE ---
@@ -608,94 +639,107 @@ export const banUser = async (userId: string, isDemoMode: boolean) => {
 export const getCurrentUserProfile = async (authUser: any): Promise<User | null> => {
   const userId = authUser.id;
   if (!isSupabaseConfigured()) {
-      if (userId === MOCK_USER.id) return MOCK_USER;
-      return null;
+    if (userId === MOCK_USER.id) return MOCK_USER;
+    return null;
   }
 
-  // Helper to fetch profile with campus join
+  // Helper to fetch
   const fetchProfile = async () => {
     return supabase
       .from('profiles')
-      .select('*, campuses(slug)')
+      .select('*, campuses(slug, name, hostels)')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
   };
 
-  // 1. Try fetching existing profile
   let { data, error } = await fetchProfile();
-    
-  // 2. If missing (error code PGRST116), try to create it
-  if (!data && (error?.code === 'PGRST116')) {
-     
-     // Fix for missing DB Trigger: Explicitly assign campus_id based on email domain
-     const rawEmail = authUser.email || '';
-     const email = rawEmail.trim().toLowerCase();
-     
-     // Robust matching
-     const matchedCampus = CAMPUSES.find(c => c.emailDomains.some(d => email.endsWith(d)));
-     
-     if (!matchedCampus) {
-         console.error("Profile creation error: Email domain not authorized for any configured campus.");
-         return null;
-     }
 
-     const newProfile = {
-        id: userId,
-        email: authUser.email,
-        name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Student',
-        avatar_url: authUser.user_metadata?.avatar_url,
-        role: 'USER',
-        hostel: 'Unknown',
-        theme: 'dark',
-        campus_id: matchedCampus.id // Explicitly set
-     };
-     
-     // Attempt Insert
-     const { error: insertError } = await supabase
-        .from('profiles')
-        .insert(newProfile);
-        
-     // CRITICAL FIX: We do NOT return null immediately on error.
-     // A background trigger might have created the user, or a race condition occurred.
-     // We proceed to try fetching the profile one last time.
-     if (insertError && insertError.code !== '23505') {
-         console.warn("Profile insert warning (ignoring to retry fetch):", insertError);
-     }
-     
-     // 3. Fetch again (Works if we inserted, OR if it existed, OR if a trigger created it)
-     const retry = await fetchProfile();
-     data = retry.data;
-     error = retry.error;
+  // RETRY LOGIC: If profile is missing, it might be the trigger race condition.
+  // Wait 1 second and try again.
+  if (!data && !error) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    const retry = await fetchProfile();
+    data = retry.data;
+    error = retry.error;
   }
-  
-  if (error || !data) {
-      console.error("Error fetching profile:", error);
+
+  // 2. Fallback: If still missing, try manual creation using strict DB lookup
+  if (!data && (!error || error.code === 'PGRST116')) {
+    const email = authUser.email || '';
+
+    // CRITICAL: Fetch valid campus UUID from DB using helper
+    const campus = await getCampusByEmail(email);
+
+    if (!campus) {
+      console.error("Profile creation error: No matching campus found for email domain in DB.");
       return null;
+    }
+
+    const newProfile = {
+      id: userId,
+      email: email,
+      name: authUser.user_metadata?.name || email.split('@')[0] || 'Student',
+      avatar_url: authUser.user_metadata?.avatar_url,
+      role: 'USER',
+      hostel: 'Unknown',
+      theme: 'dark',
+      campus_id: campus.id // Use the UUID from the DB
+    };
+
+    const { error: insertError } = await supabase.from('profiles').insert(newProfile);
+
+    if (insertError && insertError.code !== '23505') {
+      console.warn("Profile insert warning:", insertError);
+    }
+
+    // 3. Fetch again one last time
+    const finalTry = await fetchProfile();
+    data = finalTry.data;
+    error = finalTry.error;
+
+    // Resilience: If fetch failed (e.g. RLS issues) but we know they are valid and assigned, 
+    // construct a local session object to allow access.
+    if (!data && (insertError?.code === '23505' || !insertError)) {
+      data = {
+        ...newProfile,
+        campuses: {
+          slug: campus.slug,
+          name: campus.name,
+          hostels: campus.hostels || []
+        }
+      };
+    }
   }
-  
+
+  if (!data) {
+    // If error or still no data
+    if (error) console.error("Profile fetch error:", error);
+    return null;
+  }
+
   return mapDbUserToAppUser(data);
 };
 
 export const updateUserProfile = async (userId: string, updates: any, isDemoMode: boolean): Promise<User> => {
   if (isDemoMode) {
-      const current = localUsers[userId] || MOCK_USER;
-      const updated = { ...current, ...updates };
-      localUsers[userId] = updated;
-      saveToStorage(STORAGE_KEY_USERS, localUsers);
-      return updated;
+    const current = localUsers[userId] || MOCK_USER;
+    const updated = { ...current, ...updates };
+    localUsers[userId] = updated;
+    saveToStorage(STORAGE_KEY_USERS, localUsers);
+    return updated;
   }
   if (!isSupabaseConfigured()) throw new Error("Not configured");
-  
+
   const { data, error } = await supabase
     .from('profiles')
     .update({
-        name: updates.name,
-        hostel: updates.hostel,
-        phone: updates.phone,
-        year: updates.year,
-        bio: updates.bio,
-        theme: updates.theme,
-        avatar_url: updates.avatarUrl
+      name: updates.name,
+      hostel: updates.hostel,
+      phone: updates.phone,
+      year: updates.year,
+      bio: updates.bio,
+      theme: updates.theme,
+      avatar_url: updates.avatarUrl
     })
     .eq('id', userId)
     .select('*, campuses(slug)')
@@ -706,17 +750,17 @@ export const updateUserProfile = async (userId: string, updates: any, isDemoMode
 };
 
 export const requestAccountDeletion = async (userId: string, isDemoMode: boolean) => {
-    if (isDemoMode) return;
-    if (!isSupabaseConfigured()) return;
-    const { error } = await supabase.from('profiles').update({ deletion_requested_at: new Date().toISOString() }).eq('id', userId);
-    if (error) throw error;
+  if (isDemoMode) return;
+  if (!isSupabaseConfigured()) return;
+  const { error } = await supabase.from('profiles').update({ deletion_requested_at: new Date().toISOString() }).eq('id', userId);
+  if (error) throw error;
 };
 
 export const restoreAccount = async (userId: string, isDemoMode: boolean) => {
-    if (isDemoMode) return;
-    if (!isSupabaseConfigured()) return;
-    const { error } = await supabase.from('profiles').update({ deletion_requested_at: null }).eq('id', userId);
-    if (error) throw error;
+  if (isDemoMode) return;
+  if (!isSupabaseConfigured()) return;
+  const { error } = await supabase.from('profiles').update({ deletion_requested_at: null }).eq('id', userId);
+  if (error) throw error;
 }
 
 // --- ADMIN STATS ---
@@ -729,31 +773,31 @@ export const fetchAllUsers = async (isDemoMode: boolean): Promise<User[]> => {
 };
 
 export const fetchAdminStats = async (isDemoMode: boolean) => {
-    const products = await fetchAdminListings(isDemoMode);
-    const users = await fetchAllUsers(isDemoMode);
-    const reports = await fetchReports(isDemoMode);
-    return {
-        totalUsers: users.length,
-        activeProducts: products.filter(p => !p.isSold && p.status === 'ACTIVE').length,
-        pendingReports: reports.length,
-        totalValue: products.reduce((sum, p) => sum + (p.price || 0), 0),
-        recentUsers: users.slice(0, 5)
-    };
+  const products = await fetchAdminListings(isDemoMode);
+  const users = await fetchAllUsers(isDemoMode);
+  const reports = await fetchReports(isDemoMode);
+  return {
+    totalUsers: users.length,
+    activeProducts: products.filter(p => !p.isSold && p.status === 'ACTIVE').length,
+    pendingReports: reports.length,
+    totalValue: products.reduce((sum, p) => sum + (p.price || 0), 0),
+    recentUsers: users.slice(0, 5)
+  };
 };
 
 export const fetchSystemLogs = async (isDemoMode: boolean): Promise<AdminLog[]> => {
-    if (isDemoMode) return [...localLogs];
-    return [];
+  if (isDemoMode) return [...localLogs];
+  return [];
 };
 
 export const fetchSystemSettings = async (isDemoMode: boolean): Promise<SystemSettings> => {
-    if (isDemoMode) return localSettings;
-    return localSettings;
+  if (isDemoMode) return localSettings;
+  return localSettings;
 };
 
 export const updateSystemSettings = async (settings: SystemSettings, isDemoMode: boolean) => {
-    if (isDemoMode) {
-        localSettings = settings;
-        saveToStorage(STORAGE_KEY_SETTINGS, localSettings);
-    }
+  if (isDemoMode) {
+    localSettings = settings;
+    saveToStorage(STORAGE_KEY_SETTINGS, localSettings);
+  }
 };
