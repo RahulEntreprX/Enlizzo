@@ -1,3 +1,4 @@
+
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Product, User, Report, AdminLog, SystemSettings } from '../types';
 import { MOCK_PRODUCTS, MOCK_USER, CAMPUSES } from '../constants';
@@ -70,7 +71,12 @@ export const getCampusByEmail = async (email: string) => {
   if (!email || !isSupabaseConfigured()) return null;
 
   // Normalize email: trim whitespace, convert to lowercase
-  const normalizedEmail = email.trim().toLowerCase();
+  let normalizedEmail = email.trim().toLowerCase();
+
+  // Remove trailing dot if present (DNS root) which can cause mismatches
+  if (normalizedEmail.endsWith('.')) {
+    normalizedEmail = normalizedEmail.slice(0, -1);
+  }
 
   // Extract the substring after @ (the domain)
   // We use the last part to handle standard emails properly
@@ -80,7 +86,7 @@ export const getCampusByEmail = async (email: string) => {
 
   // Fetch all campuses
   // We fetch all because the table is small and it allows us to do robust normalization in code
-  // rather than relying on strict DB casing.
+  // rather than relying on strict DB casing or LIKE queries which might fail with RLS.
   const { data: campuses, error } = await supabase
     .from('campuses')
     .select('*');
@@ -90,18 +96,27 @@ export const getCampusByEmail = async (email: string) => {
     return null;
   }
 
-  // Match only strict equality against the domain_pattern
-  // FIX: Normalize the DB pattern to remove leading '@' or '%' which might be present in the seed data
-  // This ensures "iitd.ac.in" matches "@iitd.ac.in" stored in DB.
+  // Match logic: Normalize DB patterns and compare
   const match = campuses.find(c => {
     if (!c.domain_pattern) return false;
-    let dbPattern = c.domain_pattern.trim().toLowerCase();
 
-    // Remove leading characters that represent wildcards or separators for clean domain comparison
-    dbPattern = dbPattern.replace(/^[@%]+/, '');
+    // Normalize DB pattern to remove leading '@' or '%' or whitespace
+    // This ensures "iitd.ac.in" matches "@iitd.ac.in" or "%@iitd.ac.in" stored in DB.
+    const dbPattern = c.domain_pattern.trim().toLowerCase().replace(/^[@%]+/, '');
 
-    return dbPattern === userDomain;
+    // 1. Exact Match
+    if (dbPattern === userDomain) return true;
+
+    // 2. Subdomain Match (e.g. user "student.iitd.ac.in" matches "iitd.ac.in")
+    // We ensure a dot precedes the pattern to avoid false suffixes (e.g. "niitd.ac.in")
+    if (userDomain.endsWith('.' + dbPattern)) return true;
+
+    return false;
   });
+
+  if (!match) {
+    console.warn(`[Auth] Access Denied. Domain '${userDomain}' did not match any active campus patterns.`);
+  }
 
   return match || null;
 }
@@ -671,7 +686,7 @@ export const getCurrentUserProfile = async (authUser: any): Promise<User | null>
 
   // 2. Fallback: If still missing, try manual creation using strict DB lookup
   if (!data && (!error || error.code === 'PGRST116')) {
-    const email = authUser.email || '';
+    const email = authUser.email || authUser.user_metadata?.email || '';
 
     // CRITICAL: Fetch valid campus UUID from DB using helper
     const campus = await getCampusByEmail(email);
