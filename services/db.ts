@@ -804,22 +804,30 @@ export const updateUserProfile = async (userId: string, updates: any, isDemoMode
   }
   if (!isSupabaseConfigured()) throw new Error("Not configured");
 
+  // Clean payload: Only include defined values to avoid issues with undefined in Supabase
+  const payload: any = {
+    updated_at: new Date().toISOString()
+  };
+
+  if (updates.name !== undefined) payload.name = updates.name;
+  if (updates.hostel !== undefined) payload.hostel = updates.hostel;
+  if (updates.phone !== undefined) payload.phone = updates.phone;
+  if (updates.year !== undefined) payload.year = updates.year;
+  if (updates.bio !== undefined) payload.bio = updates.bio;
+  if (updates.theme !== undefined) payload.theme = updates.theme;
+  if (updates.avatarUrl !== undefined) payload.avatar_url = updates.avatarUrl;
+
   const { data, error } = await supabase
     .from('profiles')
-    .update({
-      name: updates.name,
-      hostel: updates.hostel,
-      phone: updates.phone,
-      year: updates.year,
-      bio: updates.bio,
-      theme: updates.theme,
-      avatar_url: updates.avatarUrl
-    })
+    .update(payload)
     .eq('id', userId)
     .select('*, campuses(slug)')
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error("Supabase Update Profile Error:", error);
+    throw error;
+  }
   return mapDbUserToAppUser(data);
 };
 
@@ -875,3 +883,4 @@ export const updateSystemSettings = async (settings: SystemSettings, isDemoMode:
     saveToStorage(STORAGE_KEY_SETTINGS, localSettings);
   }
 };
+
