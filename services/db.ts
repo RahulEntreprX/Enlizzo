@@ -83,29 +83,23 @@ export const getCampusByEmail = async (email: string) => {
   if (parts.length < 2) return null;
   const userDomain = parts[parts.length - 1]; // e.g. iitd.ac.in
 
-  console.log(`[DB-DEBUG] Checking campus for domain: ${userDomain}`);
-
   // Fetch all campuses - selecting 'name' and 'slug' as well for fallback logic
   const { data: campuses, error } = await supabase
     .from('campuses')
     .select('id, slug, name, domain_pattern');
 
   if (error) {
-    console.error("[DB-DEBUG] Failed to fetch campuses table. RLS might be blocking access.", error);
+    console.error("[DB] Failed to fetch campuses table.", error);
     return null;
   }
 
-  if (!campuses || campuses.length === 0) {
-    console.warn("[DB-DEBUG] Campuses table is empty or inaccessible (RLS).");
-    return null;
-  }
+  if (!campuses || campuses.length === 0) return null;
 
   // 1. Pattern Match Logic
   let match = campuses.find(c => {
     if (!c.domain_pattern) return false;
 
     // Aggressive Normalization of DB pattern
-    // Remove leading/trailing whitespace, @, %, *, or .
     const dbPattern = c.domain_pattern.trim().toLowerCase().replace(/^[\s%@*.]+/, '').replace(/[\s%@*.]+$/, '');
 
     // Exact Match
@@ -117,21 +111,10 @@ export const getCampusByEmail = async (email: string) => {
     return false;
   });
 
-  // 2. Fallback: Slug Match (e.g. iitd.ac.in -> slug 'iitd')
-  // This handles cases where domain_pattern in DB might be messy or missing
+  // 2. Fallback: Slug Match
   if (!match) {
-    const domainSlug = userDomain.split('.')[0]; // iitd from iitd.ac.in
+    const domainSlug = userDomain.split('.')[0];
     match = campuses.find(c => c.slug === domainSlug);
-    if (match) {
-      console.log(`[DB-DEBUG] Fallback match by slug: ${match.slug} for domain ${userDomain}`);
-    }
-  }
-
-  if (match) {
-    console.log(`[DB-DEBUG] Match found: ${match.slug} (${match.id})`);
-  } else {
-    console.warn(`[DB-DEBUG] No campus match found for: ${userDomain}`);
-    console.debug("Available patterns:", campuses.map(c => c.domain_pattern));
   }
 
   return match || null;
@@ -153,7 +136,7 @@ export const mapDbUserToAppUser = (dbUser: any): User => ({
   deletionRequestedAt: dbUser.deletion_requested_at,
   theme: dbUser.theme || 'dark',
   campusId: dbUser.campus_id,
-  campusSlug: dbUser.campuses?.slug // Mapped from join
+  campusSlug: dbUser.campuses?.slug
 });
 
 export const mapDbListingToProduct = (dbListing: any, profileMap: any): Product => ({
@@ -278,6 +261,13 @@ export const createListing = async (
 
   const slug = generateSlug(formData.title);
 
+  // SANITIZATION: Ensure we don't send "NaN" or "" to Postgres numeric columns
+  const finalPrice = formData.isDonation ? 0 : (parseFloat(formData.price) || 0);
+  // Ensure original price is null if empty/0, otherwise float
+  const finalOriginalPrice = (formData.originalPrice && !isNaN(parseFloat(formData.originalPrice)))
+    ? parseFloat(formData.originalPrice)
+    : null;
+
   if (isDemoMode) {
     const newId = `p${Date.now()}`;
     const newProduct: Product = {
@@ -285,8 +275,8 @@ export const createListing = async (
       slug: slug,
       title: formData.title,
       description: formData.description,
-      price: formData.isDonation ? 0 : Number(formData.price),
-      originalPrice: formData.originalPrice ? Number(formData.originalPrice) : undefined,
+      price: finalPrice,
+      originalPrice: finalOriginalPrice || undefined,
       category: formData.category,
       condition: formData.condition,
       images: formData.images,
@@ -315,6 +305,14 @@ export const createListing = async (
     ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
     : null;
 
+  // Ensure campus_id is present. Fallback to generic if user context is missing it (rare)
+  const campusId = user.campusId;
+
+  if (!campusId) {
+    console.error("Critical: User missing campusId during createListing");
+    throw new Error("User campus not defined.");
+  }
+
   const { data, error } = await supabase
     .from('listings')
     .insert({
@@ -322,8 +320,8 @@ export const createListing = async (
       slug: slug,
       title: formData.title,
       description: formData.description,
-      price: formData.isDonation ? 0 : Number(formData.price),
-      original_price: formData.originalPrice ? Number(formData.originalPrice) : null,
+      price: finalPrice,
+      original_price: finalOriginalPrice,
       category: formData.category,
       condition: formData.condition,
       images: formData.images,
@@ -332,12 +330,15 @@ export const createListing = async (
       expires_at: expiresAt,
       payment_status: 'PAID',
       status: 'ACTIVE',
-      campus_id: user.campusId
+      campus_id: campusId
     })
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error("Supabase Create Listing Error:", error);
+    throw error;
+  }
 
   return {
     id: data.id,
@@ -369,6 +370,12 @@ export const updateListing = async (
   formData: any,
   isDemoMode: boolean
 ): Promise<void> => {
+  // SANITIZATION
+  const finalPrice = formData.isDonation ? 0 : (parseFloat(formData.price) || 0);
+  const finalOriginalPrice = (formData.originalPrice && !isNaN(parseFloat(formData.originalPrice)))
+    ? parseFloat(formData.originalPrice)
+    : null;
+
   if (isDemoMode) {
     localProducts = localProducts.map(p => {
       if (p.id === productId) {
@@ -376,8 +383,8 @@ export const updateListing = async (
           ...p,
           title: formData.title,
           description: formData.description,
-          price: formData.isDonation ? 0 : Number(formData.price),
-          originalPrice: formData.originalPrice ? Number(formData.originalPrice) : undefined,
+          price: finalPrice,
+          originalPrice: finalOriginalPrice || undefined,
           category: formData.category,
           condition: formData.condition,
           images: formData.images,
@@ -396,8 +403,8 @@ export const updateListing = async (
     .update({
       title: formData.title,
       description: formData.description,
-      price: formData.isDonation ? 0 : Number(formData.price),
-      original_price: formData.originalPrice ? Number(formData.originalPrice) : null,
+      price: finalPrice,
+      original_price: finalOriginalPrice,
       category: formData.category,
       condition: formData.condition,
       images: formData.images,
@@ -405,7 +412,10 @@ export const updateListing = async (
     })
     .eq('id', productId);
 
-  if (error) throw error;
+  if (error) {
+    console.error("Update Listing Error:", error);
+    throw error;
+  }
 };
 
 export const updateListingStatus = async (id: string, status: 'SOLD' | 'ARCHIVED' | 'FLAGGED' | 'ACTIVE', isDemoMode: boolean) => {
@@ -575,17 +585,21 @@ export const uploadImage = async (file: File) => {
   let fileToUpload = file;
   try { fileToUpload = await compressImage(file); } catch (e) { }
 
-  const fileExt = fileToUpload.name.split('.').pop();
-  const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
-  const filePath = `${fileName}`;
+  // SANITIZE FILENAME: Remove spaces, special chars, and use random prefix
+  const fileExt = fileToUpload.name.split('.').pop()?.toLowerCase() || 'jpg';
+  const sanitizedName = fileToUpload.name.replace(/[^a-z0-9]/gi, '_').substring(0, 10);
+  const fileName = `${Math.random().toString(36).substring(2, 10)}_${Date.now()}_${sanitizedName}.${fileExt}`;
 
   const { error: uploadError } = await supabase.storage
     .from('item-images')
-    .upload(filePath, fileToUpload);
+    .upload(fileName, fileToUpload);
 
-  if (uploadError) throw uploadError;
+  if (uploadError) {
+    console.error("Upload Error:", uploadError);
+    throw uploadError;
+  }
 
-  const { data } = supabase.storage.from('item-images').getPublicUrl(filePath);
+  const { data } = supabase.storage.from('item-images').getPublicUrl(fileName);
   return data.publicUrl;
 };
 
@@ -689,17 +703,6 @@ export const getCurrentUserProfile = async (authUser: any): Promise<User | null>
 
   let { data, error } = await fetchProfile();
 
-  // RETRY LOGIC: If profile is missing, it might be the trigger race condition.
-  // Wait 1.5 seconds and try again (Increased wait).
-  if (!data && !error) {
-    console.log("[DB-DEBUG] Profile not found, waiting for trigger...");
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    const retry = await fetchProfile();
-    data = retry.data;
-    error = retry.error;
-  }
-
-  // Retry 2: One last desperate check
   if (!data && !error) {
     await new Promise(resolve => setTimeout(resolve, 1500));
     const retry = await fetchProfile();
@@ -707,19 +710,12 @@ export const getCurrentUserProfile = async (authUser: any): Promise<User | null>
     error = retry.error;
   }
 
-  // 2. Fallback: If still missing, try manual creation using strict DB lookup
+  // Fallback: If still missing, try manual creation using strict DB lookup
   if (!data && (!error || error.code === 'PGRST116')) {
-    console.warn("[DB-DEBUG] Profile trigger likely failed or too slow. Attempting manual creation.");
-
     const email = authUser.email || authUser.user_metadata?.email || '';
-
-    // CRITICAL: Fetch valid campus UUID from DB using helper
     const campus = await getCampusByEmail(email);
 
-    if (!campus) {
-      console.error(`[DB-DEBUG] Profile creation FAILED: No matching campus found for email ${email} in DB.`);
-      return null;
-    }
+    if (!campus) return null;
 
     const newProfile = {
       id: userId,
@@ -729,36 +725,19 @@ export const getCurrentUserProfile = async (authUser: any): Promise<User | null>
       role: 'USER',
       hostel: 'Unknown',
       theme: 'dark',
-      campus_id: campus.id // Use the UUID from the DB
+      campus_id: campus.id
     };
 
     try {
-      const { error: insertError } = await supabase.from('profiles').insert(newProfile);
+      await supabase.from('profiles').insert(newProfile);
+    } catch (e) { }
 
-      if (insertError) {
-        // 23505 = Unique violation (Created by trigger while we were waiting)
-        if (insertError.code !== '23505') {
-          console.error("[DB-DEBUG] Profile manual insert failed:", insertError);
-        } else {
-          console.log("[DB-DEBUG] Profile already created by trigger (race condition resolved).");
-        }
-      }
-    } catch (e) {
-      console.error("[DB-DEBUG] Unexpected error during manual profile insert:", e);
-    }
-
-    // 3. Fetch again one last time
+    // Last Fetch
     const finalTry = await fetchProfile();
     data = finalTry.data;
 
-    // RESILIENCE BLOCK:
-    // If data is still missing (likely RLS blocking SELECT), but we have a valid campus and email,
-    // we proceed with a synthetic profile to allow the user to access the app.
-    // This fixes "Access Denied" screens caused by restrictive DB policies on read.
+    // Synthetic Fallback
     if (!data && campus) {
-      console.warn("[DB-DEBUG] Profile fetch failed/blocked, but campus authorized. Using synthetic profile.");
-
-      // Construct a profile that matches the mapDbUserToAppUser expectations
       data = {
         id: userId,
         email: email,
@@ -776,20 +755,16 @@ export const getCurrentUserProfile = async (authUser: any): Promise<User | null>
         campuses: {
           slug: campus.slug,
           name: campus.name,
-          hostels: [] // Default empty
+          hostels: []
         }
       };
-      // Clear error to allow return
       error = null;
     } else {
       error = finalTry.error;
     }
   }
 
-  if (!data) {
-    if (error) console.error("[DB-DEBUG] Final Profile fetch error:", error);
-    return null;
-  }
+  if (!data) return null;
 
   return mapDbUserToAppUser(data);
 };
@@ -804,18 +779,18 @@ export const updateUserProfile = async (userId: string, updates: any, isDemoMode
   }
   if (!isSupabaseConfigured()) throw new Error("Not configured");
 
-  // Clean payload: Only include defined values to avoid issues with undefined in Supabase
+  // Clean payload: Only include defined values
   const payload: any = {
     updated_at: new Date().toISOString()
   };
 
-  if (updates.name !== undefined) payload.name = updates.name;
-  if (updates.hostel !== undefined) payload.hostel = updates.hostel;
-  if (updates.phone !== undefined) payload.phone = updates.phone;
-  if (updates.year !== undefined) payload.year = updates.year;
-  if (updates.bio !== undefined) payload.bio = updates.bio;
-  if (updates.theme !== undefined) payload.theme = updates.theme;
-  if (updates.avatarUrl !== undefined) payload.avatar_url = updates.avatarUrl;
+  if (typeof updates.name === 'string') payload.name = updates.name;
+  if (typeof updates.hostel === 'string') payload.hostel = updates.hostel;
+  if (typeof updates.phone === 'string') payload.phone = updates.phone;
+  if (typeof updates.year === 'string') payload.year = updates.year;
+  if (typeof updates.bio === 'string') payload.bio = updates.bio;
+  if (typeof updates.theme === 'string') payload.theme = updates.theme;
+  if (typeof updates.avatarUrl === 'string') payload.avatar_url = updates.avatarUrl;
 
   const { data, error } = await supabase
     .from('profiles')
@@ -883,4 +858,3 @@ export const updateSystemSettings = async (settings: SystemSettings, isDemoMode:
     saveToStorage(STORAGE_KEY_SETTINGS, localSettings);
   }
 };
-

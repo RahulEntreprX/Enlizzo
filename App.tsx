@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, memo, useRef, useLayoutEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { LandingPage } from './pages/LandingPage';
@@ -136,12 +137,15 @@ const App = () => {
 
   // 1. Handle Scroll Restoration
   useLayoutEffect(() => {
+    if (authLoading) return; // Wait for auth
     const savedPosition = scrollPositions.current[currentView];
     window.scrollTo(0, savedPosition || 0);
-  }, [currentView]);
+  }, [currentView, authLoading]);
 
   // 2. Handle Initial URL Load and PopState (Browser Back/Forward)
   useEffect(() => {
+    if (authLoading) return; // Critical: Wait for auth before deciding view
+
     const handleUrlSync = () => {
        const path = window.location.pathname;
        const hash = window.location.hash;
@@ -152,7 +156,13 @@ const App = () => {
 
        // Clean Path Routing
        if (path === '/' || path === '/landing') {
-           setCurrentView('landing');
+           // If user is logged in, they shouldn't see landing unless explicit
+           if (user) {
+             setCurrentView('marketplace');
+             window.history.replaceState({}, '', '/market');
+           } else {
+             setCurrentView('landing');
+           }
        } else if (path === '/market' || path === '/marketplace') {
            setCurrentView('marketplace');
        } else if (path === '/sell' || path === '/listing') {
@@ -172,9 +182,10 @@ const App = () => {
                setCurrentView('marketplace');
            }
        } else {
-           // Default logic after auth logic handles redirects, 
-           // but initial load relies on URL mostly.
-           if (path === '/') setCurrentView('landing');
+           if (path === '/') {
+              if (user) setCurrentView('marketplace');
+              else setCurrentView('landing');
+           }
        }
     };
 
@@ -184,10 +195,12 @@ const App = () => {
     // Listen for back button
     window.addEventListener('popstate', handleUrlSync);
     return () => window.removeEventListener('popstate', handleUrlSync);
-  }, []); // Only run once on mount to parse URL
+  }, [authLoading, user]); // Depend on authLoading to re-run once auth is settled
 
   // 3. Handle Legacy Redirects (After products load)
   useEffect(() => {
+    if (authLoading) return;
+    
     if (products.length > 0) {
        const params = new URLSearchParams(window.location.search);
        
@@ -214,9 +227,9 @@ const App = () => {
           }
        }
     }
-  }, [products]);
+  }, [products, authLoading]);
 
-  // 4. Handle Auth-based Redirection
+  // 4. Handle Auth-based Redirection (Guard)
   useEffect(() => {
     // CRITICAL: Do not redirect while auth is still loading to prevent flash
     if (authLoading) return;
@@ -235,12 +248,13 @@ const App = () => {
 
   // Fetch User Data (Saved Items)
   useEffect(() => {
+    if (authLoading) return;
     if (user) {
       fetchSavedItems(user.id, isDemo).then(setSavedIds);
     } else {
       setSavedIds(new Set());
     }
-  }, [user, isDemo]);
+  }, [user, isDemo, authLoading]);
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -364,22 +378,19 @@ const App = () => {
   };
 
   const handleMarkAsSold = async (productId: string, newStatus: 'SOLD' | 'ACTIVE') => {
-    // Optimistic update handled by hook via re-fetch or realtime, but for instant UI feedback we can manually mutate
-    // However, since we use the hook's state, we should rely on the DB update. 
-    // Ideally we would update the local state here too, but the hook manages 'products'.
-    // We can just call the DB function and let realtime handle the rest.
     updateListingStatus(productId, newStatus, isDemo).catch(console.error);
   };
 
   const handleListingComplete = async (newProduct: Product) => {
-    // Logic handled by realtime subscription now, but we can navigate immediately
     handleNavigate('marketplace');
   };
   
   const handleProfileUpdate = (updatedUser: User) => {
     updateUser(updatedUser);
-    // Trigger a refresh of listings to ensure the user's new avatar/name appears on their cards immediately
-    refreshProducts(); 
+    // Non-blocking background refresh for products (to update seller names eventually)
+    setTimeout(() => {
+        refreshProducts().catch(console.error);
+    }, 0);
   };
 
   // Resolve Product from Slug (Checking both slug field and ID for backward compatibility during resolution)
@@ -391,6 +402,32 @@ const App = () => {
         <div className="h-10 w-10 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div>
      </div>
   );
+
+  // ==========================================
+  // BOOT SCREEN (GLOBAL AUTH LOADER)
+  // ==========================================
+  // Prevents any view rendering until Auth is settled
+  if (authLoading) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#030712] text-white">
+        <div className="flex flex-col items-center gap-6">
+           {/* Logo Animation */}
+           <div className="relative h-16 w-16">
+              <div className="absolute inset-0 border-4 border-indigo-500/30 rounded-xl"></div>
+              <div className="absolute inset-0 border-4 border-t-indigo-500 border-r-transparent border-b-transparent border-l-transparent rounded-xl animate-spin"></div>
+              <div className="absolute inset-0 flex items-center justify-center font-bold text-xl tracking-tighter">E</div>
+           </div>
+           
+           <div className="flex flex-col items-center gap-2">
+             <div className="h-1 w-32 bg-gray-800 rounded-full overflow-hidden">
+                <div className="h-full bg-indigo-500 w-1/3 animate-shimmer-fast rounded-full"></div>
+             </div>
+             <p className="text-xs text-gray-500 font-mono tracking-widest uppercase">Initializing Enlizzo</p>
+           </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col font-sans relative selection:bg-indigo-500/30 selection:text-indigo-800 dark:selection:bg-cyan-500/30 dark:selection:text-cyan-200">
@@ -467,7 +504,6 @@ const App = () => {
             )}
 
             {currentView === 'listing' && (
-              authLoading ? <ContentLoader /> :
               <ListingForm 
                 onBack={() => handleNavigate('marketplace')} 
                 onSubmit={handleListingComplete}
@@ -478,7 +514,6 @@ const App = () => {
             )}
 
             {currentView === 'profile' && (
-              authLoading ? <ContentLoader /> :
               user ? (
                 <Profile 
                     user={user} 
@@ -491,11 +526,10 @@ const App = () => {
                     onProfileUpdate={handleProfileUpdate}
                     isDemo={isDemo}
                 />
-              ) : <ContentLoader /> // Fallback if redirected logic hasn't kicked in yet
+              ) : <ContentLoader /> 
             )}
 
             {currentView === 'admin' && (
-                authLoading ? <ContentLoader /> :
                 user?.role === 'ADMIN' ? <AdminPanel isDemo={isDemo} /> : null
             )}
           </div>
