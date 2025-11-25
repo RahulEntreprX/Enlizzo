@@ -34,32 +34,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [currentCampus, setCurrentCampus] = useState<typeof CAMPUSES[0] | null>(null);
 
-  // Look up full campus object based on DB Slug (preferred) or ID
+  // Look up full campus object based on DB Slug (preferred), ID, or Email Domain fallback
   const resolveCampus = (profile: User) => {
+    // 1. Try slug match (Most reliable if DB join worked)
     if (profile.campusSlug) {
-      return CAMPUSES.find(c => c.slug === profile.campusSlug) || null;
+      const match = CAMPUSES.find(c => c.slug === profile.campusSlug);
+      if (match) return match;
     }
-    // Fallback for Demo mode or legacy
+
+    // 2. Try ID match (Fallback for Demo/Legacy where ID is string 'iitd')
     if (profile.campusId) {
-      return CAMPUSES.find(c => c.id === profile.campusId) || null;
+      const match = CAMPUSES.find(c => c.id === profile.campusId);
+      if (match) return match;
     }
+
+    // 3. Fallback: Match by Email Domain (Resilience against DB join failures)
+    if (profile.email) {
+      const domain = profile.email.split('@')[1];
+      if (domain) {
+        const match = CAMPUSES.find(c => c.emailDomains.some(d => d.includes(domain) || domain.includes(d.replace('@', ''))));
+        if (match) return match;
+      }
+    }
+
     return null;
   };
 
   const validateAndSetUser = async (authUser: any) => {
     try {
       // Fetch full profile from DB
-      // The DB trigger guarantees that if this user exists, they have a valid campus_id
       const profile = await getCurrentUserProfile(authUser);
 
       if (profile) {
         const dbCampus = resolveCampus(profile);
 
-        // If for some reason the DB didn't assign a campus (edge case), we deny access
         if (!dbCampus) {
-          console.error("CRITICAL: User has no recognized campus configuration");
-          await supabase.auth.signOut();
-          alert("System Error: Account has no assigned campus.");
+          console.error("CRITICAL: User has no recognized campus configuration", profile);
+          // We do NOT sign out here to avoid aggressive loops. 
+          // Just return null, app will handle empty state or redirect to landing.
           return null;
         }
 
@@ -83,14 +95,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         return profile;
       } else {
-        // Profile creation failed.
+        // Profile creation failed or fetch returned null
         const email = authUser.email || authUser.user_metadata?.email || 'Unknown';
-        console.error(`Validation Failed for ${email}. Profile is null.`);
-
-        await supabase.auth.signOut();
-
-        // More descriptive alert for debugging
-        alert(`Access Denied: Could not create/verify profile for ${email}. \n\nPossible causes:\n1. Email domain not authorized in DB.\n2. Database RLS policy blocking read access.\n3. Server trigger failed.\n\nCheck console [DB-DEBUG] for details.`);
+        console.warn(`Validation Failed for ${email}. Profile is null. Retrying on next load.`);
+        // Do NOT sign out. Let the session persist so next refresh might work.
         return null;
       }
     } catch (error) {
@@ -104,12 +112,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let authListener: { subscription: { unsubscribe: () => void } } | null = null;
 
     const initAuth = async () => {
+      // Safety timeout to prevent infinite loading screen
       const safetyTimeout = setTimeout(() => {
         if (mounted && loading) {
           console.warn("Auth initialization timed out - forcing app load");
           setLoading(false);
         }
-      }, 4000);
+      }, 5000); // Increased to 5s to allow for profile retries
 
       if (!isSupabaseConfigured()) {
         const stored = localStorage.getItem(STORAGE_KEY_DEMO_USER);
@@ -118,7 +127,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const parsed = JSON.parse(stored);
             if (mounted) {
               setUser(parsed);
-              // For local storage demo user
               const demoCampus = CAMPUSES.find(c => c.id === parsed.campusId) || CAMPUSES[0];
               setCurrentCampus(demoCampus);
             }
