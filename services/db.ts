@@ -73,9 +73,10 @@ export const getCampusByEmail = async (email: string) => {
   const normalizedEmail = email.trim().toLowerCase();
 
   // Extract the substring after @ (the domain)
+  // We use the last part to handle standard emails properly
   const parts = normalizedEmail.split('@');
   if (parts.length < 2) return null;
-  const userDomain = parts[1];
+  const userDomain = parts[parts.length - 1];
 
   // Fetch all campuses
   // We fetch all because the table is small and it allows us to do robust normalization in code
@@ -90,10 +91,15 @@ export const getCampusByEmail = async (email: string) => {
   }
 
   // Match only strict equality against the domain_pattern
-  // We normalize the DB pattern as well to be safe against data entry errors (whitespace/case)
+  // FIX: Normalize the DB pattern to remove leading '@' or '%' which might be present in the seed data
+  // This ensures "iitd.ac.in" matches "@iitd.ac.in" stored in DB.
   const match = campuses.find(c => {
     if (!c.domain_pattern) return false;
-    const dbPattern = c.domain_pattern.trim().toLowerCase();
+    let dbPattern = c.domain_pattern.trim().toLowerCase();
+
+    // Remove leading characters that represent wildcards or separators for clean domain comparison
+    dbPattern = dbPattern.replace(/^[@%]+/, '');
+
     return dbPattern === userDomain;
   });
 
