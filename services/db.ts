@@ -79,20 +79,24 @@ export const getCampusByEmail = async (email: string) => {
   }
 
   // Extract the substring after @ (the domain)
-  // We use the last part to handle standard emails properly
   const parts = normalizedEmail.split('@');
   if (parts.length < 2) return null;
   const userDomain = parts[parts.length - 1];
 
-  // Fetch all campuses
-  // We fetch all because the table is small and it allows us to do robust normalization in code
-  // rather than relying on strict DB casing or LIKE queries which might fail with RLS.
+  console.log(`[DB-DEBUG] Checking campus for domain: ${userDomain}`);
+
+  // Fetch all campuses - optimize selection
   const { data: campuses, error } = await supabase
     .from('campuses')
-    .select('*');
+    .select('id, slug, domain_pattern');
 
-  if (error || !campuses) {
-    console.error("Failed to fetch campuses for email verification", error);
+  if (error) {
+    console.error("[DB-DEBUG] Failed to fetch campuses table. RLS might be blocking access.", error);
+    return null;
+  }
+
+  if (!campuses || campuses.length === 0) {
+    console.warn("[DB-DEBUG] Campuses table is empty or inaccessible (RLS).");
     return null;
   }
 
@@ -100,22 +104,25 @@ export const getCampusByEmail = async (email: string) => {
   const match = campuses.find(c => {
     if (!c.domain_pattern) return false;
 
-    // Normalize DB pattern to remove leading '@' or '%' or whitespace
-    // This ensures "iitd.ac.in" matches "@iitd.ac.in" or "%@iitd.ac.in" stored in DB.
-    const dbPattern = c.domain_pattern.trim().toLowerCase().replace(/^[@%]+/, '');
+    // Aggressive Normalization of DB pattern
+    // Remove leading/trailing whitespace, @, %, *, or .
+    const dbPattern = c.domain_pattern.trim().toLowerCase().replace(/^[\s%@*.]+/, '').replace(/[\s%@*.]+$/, '');
 
     // 1. Exact Match
     if (dbPattern === userDomain) return true;
 
     // 2. Subdomain Match (e.g. user "student.iitd.ac.in" matches "iitd.ac.in")
-    // We ensure a dot precedes the pattern to avoid false suffixes (e.g. "niitd.ac.in")
     if (userDomain.endsWith('.' + dbPattern)) return true;
 
     return false;
   });
 
-  if (!match) {
-    console.warn(`[Auth] Access Denied. Domain '${userDomain}' did not match any active campus patterns.`);
+  if (match) {
+    console.log(`[DB-DEBUG] Match found: ${match.slug} (${match.id})`);
+  } else {
+    console.warn(`[DB-DEBUG] No campus match found for: ${userDomain}`);
+    // Log available patterns to help debug
+    console.debug("Available patterns:", campuses.map(c => c.domain_pattern));
   }
 
   return match || null;
@@ -175,8 +182,6 @@ export const fetchListings = async (isDemoMode: boolean) => {
   if (!isSupabaseConfigured()) return [];
 
   try {
-    // RLS filters listings automatically based on policy if needed, 
-    // but generally listings are public within the context or filtered by query.
     const { data: listings, error } = await supabase
       .from('listings')
       .select('*')
@@ -676,9 +681,18 @@ export const getCurrentUserProfile = async (authUser: any): Promise<User | null>
   let { data, error } = await fetchProfile();
 
   // RETRY LOGIC: If profile is missing, it might be the trigger race condition.
-  // Wait 1 second and try again.
+  // Wait 1.5 seconds and try again (Increased wait).
   if (!data && !error) {
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    console.log("[DB-DEBUG] Profile not found, waiting for trigger...");
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    const retry = await fetchProfile();
+    data = retry.data;
+    error = retry.error;
+  }
+
+  // Retry 2: One last desperate check
+  if (!data && !error) {
+    await new Promise(resolve => setTimeout(resolve, 1500));
     const retry = await fetchProfile();
     data = retry.data;
     error = retry.error;
@@ -686,13 +700,15 @@ export const getCurrentUserProfile = async (authUser: any): Promise<User | null>
 
   // 2. Fallback: If still missing, try manual creation using strict DB lookup
   if (!data && (!error || error.code === 'PGRST116')) {
+    console.warn("[DB-DEBUG] Profile trigger likely failed or too slow. Attempting manual creation.");
+
     const email = authUser.email || authUser.user_metadata?.email || '';
 
     // CRITICAL: Fetch valid campus UUID from DB using helper
     const campus = await getCampusByEmail(email);
 
     if (!campus) {
-      console.error("Profile creation error: No matching campus found for email domain in DB.");
+      console.error(`[DB-DEBUG] Profile creation FAILED: No matching campus found for email ${email} in DB.`);
       return null;
     }
 
@@ -707,10 +723,19 @@ export const getCurrentUserProfile = async (authUser: any): Promise<User | null>
       campus_id: campus.id // Use the UUID from the DB
     };
 
-    const { error: insertError } = await supabase.from('profiles').insert(newProfile);
+    try {
+      const { error: insertError } = await supabase.from('profiles').insert(newProfile);
 
-    if (insertError && insertError.code !== '23505') {
-      console.warn("Profile insert warning:", insertError);
+      if (insertError) {
+        // 23505 = Unique violation (Created by trigger while we were waiting)
+        if (insertError.code !== '23505') {
+          console.error("[DB-DEBUG] Profile manual insert failed:", insertError);
+        } else {
+          console.log("[DB-DEBUG] Profile already created by trigger (race condition resolved).");
+        }
+      }
+    } catch (e) {
+      console.error("[DB-DEBUG] Unexpected error during manual profile insert:", e);
     }
 
     // 3. Fetch again one last time
@@ -720,13 +745,15 @@ export const getCurrentUserProfile = async (authUser: any): Promise<User | null>
 
     // Resilience: If fetch failed (e.g. RLS issues) but we know they are valid and assigned, 
     // construct a local session object to allow access.
-    if (!data && (insertError?.code === '23505' || !insertError)) {
+    if (!data && !error && campus) {
+      console.warn("[DB-DEBUG] Profile fetch failed after creation. Constructing temporary profile.");
       data = {
         ...newProfile,
         campuses: {
           slug: campus.slug,
-          name: campus.name,
-          hostels: campus.hostels || []
+          // We don't have name/hostels if fetch failed, but we can't do much else
+          name: 'Campus',
+          hostels: []
         }
       };
     }
@@ -734,7 +761,7 @@ export const getCurrentUserProfile = async (authUser: any): Promise<User | null>
 
   if (!data) {
     // If error or still no data
-    if (error) console.error("Profile fetch error:", error);
+    if (error) console.error("[DB-DEBUG] Final Profile fetch error:", error);
     return null;
   }
 

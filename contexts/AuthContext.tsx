@@ -18,10 +18,10 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
-  loginAsDemo: () => {},
-  logout: async () => {},
-  refreshUser: async () => {},
-  updateUser: () => {},
+  loginAsDemo: () => { },
+  logout: async () => { },
+  refreshUser: async () => { },
+  updateUser: () => { },
   currentCampus: null,
 });
 
@@ -36,14 +36,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Look up full campus object based on DB Slug (preferred) or ID
   const resolveCampus = (profile: User) => {
-      if (profile.campusSlug) {
-         return CAMPUSES.find(c => c.slug === profile.campusSlug) || null;
-      }
-      // Fallback for Demo mode or legacy
-      if (profile.campusId) {
-          return CAMPUSES.find(c => c.id === profile.campusId) || null;
-      }
-      return null;
+    if (profile.campusSlug) {
+      return CAMPUSES.find(c => c.slug === profile.campusSlug) || null;
+    }
+    // Fallback for Demo mode or legacy
+    if (profile.campusId) {
+      return CAMPUSES.find(c => c.id === profile.campusId) || null;
+    }
+    return null;
   };
 
   const validateAndSetUser = async (authUser: any) => {
@@ -51,44 +51,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Fetch full profile from DB
       // The DB trigger guarantees that if this user exists, they have a valid campus_id
       const profile = await getCurrentUserProfile(authUser);
-      
+
       if (profile) {
         const dbCampus = resolveCampus(profile);
 
         // If for some reason the DB didn't assign a campus (edge case), we deny access
         if (!dbCampus) {
-             console.error("CRITICAL: User has no recognized campus configuration");
-             await supabase.auth.signOut();
-             alert("System Error: Account has no assigned campus.");
-             return null;
+          console.error("CRITICAL: User has no recognized campus configuration");
+          await supabase.auth.signOut();
+          alert("System Error: Account has no assigned campus.");
+          return null;
         }
 
         setCurrentCampus(dbCampus);
 
         if (profile.isBanned) {
-            await supabase.auth.signOut();
-            alert("Account Suspended.");
-            return null;
+          await supabase.auth.signOut();
+          alert("Account Suspended.");
+          return null;
         }
 
         if (profile.deletionRequestedAt) {
-            const confirmRestore = window.confirm("This account is scheduled for deletion. Restore?");
-            if (confirmRestore) {
-                await restoreAccount(profile.id, false);
-                profile.deletionRequestedAt = null;
-            } else {
-                await supabase.auth.signOut();
-                return null;
-            }
+          const confirmRestore = window.confirm("This account is scheduled for deletion. Restore?");
+          if (confirmRestore) {
+            await restoreAccount(profile.id, false);
+            profile.deletionRequestedAt = null;
+          } else {
+            await supabase.auth.signOut();
+            return null;
+          }
         }
         return profile;
       } else {
-          // Profile creation failed.
-          // The logic in getCurrentUserProfile is robust, so if we get null here, 
-          // it means the email domain was truly invalid or the DB is down.
-          await supabase.auth.signOut();
-          alert("Access Denied: Could not verify profile. Please check your email domain or try again later.");
-          return null;
+        // Profile creation failed.
+        const email = authUser.email || authUser.user_metadata?.email || 'Unknown';
+        console.error(`Validation Failed for ${email}. Profile is null.`);
+
+        await supabase.auth.signOut();
+
+        // More descriptive alert for debugging
+        alert(`Access Denied: Could not create/verify profile for ${email}. \n\nPossible causes:\n1. Email domain not authorized in DB.\n2. Database RLS policy blocking read access.\n3. Server trigger failed.\n\nCheck console [DB-DEBUG] for details.`);
+        return null;
       }
     } catch (error) {
       console.error("User validation failed", error);
@@ -103,8 +106,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const initAuth = async () => {
       const safetyTimeout = setTimeout(() => {
         if (mounted && loading) {
-           console.warn("Auth initialization timed out - forcing app load");
-           setLoading(false);
+          console.warn("Auth initialization timed out - forcing app load");
+          setLoading(false);
         }
       }, 4000);
 
@@ -114,10 +117,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             const parsed = JSON.parse(stored);
             if (mounted) {
-                setUser(parsed);
-                // For local storage demo user
-                const demoCampus = CAMPUSES.find(c => c.id === parsed.campusId) || CAMPUSES[0];
-                setCurrentCampus(demoCampus);
+              setUser(parsed);
+              // For local storage demo user
+              const demoCampus = CAMPUSES.find(c => c.id === parsed.campusId) || CAMPUSES[0];
+              setCurrentCampus(demoCampus);
             }
           } catch (e) {
             console.error(e);
@@ -131,7 +134,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
         if (error) {
-           console.warn("Session check warning:", error.message);
+          console.warn("Session check warning:", error.message);
         }
 
         if (session?.user && mounted) {
@@ -140,17 +143,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
-           if (!mounted) return;
+          if (!mounted) return;
 
-           if (event === 'SIGNED_IN' && session?.user) {
-              const profile = await validateAndSetUser(session.user);
-              if (mounted) setUser(profile);
-           } else if (event === 'SIGNED_OUT') {
-              if (mounted) {
-                  setUser(null);
-                  setCurrentCampus(null);
-              }
-           }
+          if (event === 'SIGNED_IN' && session?.user) {
+            const profile = await validateAndSetUser(session.user);
+            if (mounted) setUser(profile);
+          } else if (event === 'SIGNED_OUT') {
+            if (mounted) {
+              setUser(null);
+              setCurrentCampus(null);
+            }
+          }
         });
         authListener = data;
 
@@ -189,23 +192,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem(STORAGE_KEY_DEMO_USER);
     setUser(null);
     setCurrentCampus(null);
-    
+
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('product');
       window.history.pushState({}, '', url.toString());
-    } catch (e) {}
+    } catch (e) { }
   };
 
   const refreshUser = async () => {
-      if (!user) return;
-      if (isSupabaseConfigured()) {
-          const { data: { user: authUser } } = await supabase.auth.getUser();
-          if (authUser) {
-              const profile = await getCurrentUserProfile(authUser);
-              if (profile) setUser(profile);
-          }
+    if (!user) return;
+    if (isSupabaseConfigured()) {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser) {
+        const profile = await getCurrentUserProfile(authUser);
+        if (profile) setUser(profile);
       }
+    }
   };
 
   const updateUser = (updatedUser: User) => {
